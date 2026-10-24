@@ -1,0 +1,546 @@
+
+.emergency-panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: #efcfde;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(248, 196, 219, 0.32), transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 247, 251, 0.94));
+}
+
+.emergency-panel::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -100px;
+  right: -95px;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 87, 138, 0.18), rgba(240, 234, 254, 0.1) 48%, transparent 72%);
+  animation: emergency-orb 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.emergency-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.emergency-eyebrow,
+.contact-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #b83268;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.emergency-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid #efc4d7;
+  border-radius: 999px;
+  background: #fff0f6;
+  color: #9b2c5c;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c7467c;
+  box-shadow: 0 0 12px rgba(199, 70, 124, 0.5);
+}
+
+.contact-form {
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+}
+
+.contact-form h3 {
+  margin-bottom: 6px;
+}
+
+.contact-form > label:not(.consent-row) {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.contact-form input[type="text"],
+.contact-form input[type="tel"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  border: 1px solid #e8cbd9;
+  border-radius: 12px;
+  background: #fffafd;
+  color: #432b39;
+  font: inherit;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.contact-form input[type="text"]:focus,
+.contact-form input[type="tel"]:focus {
+  outline: none;
+  border-color: #c7467c;
+  box-shadow: 0 0 0 4px rgba(199, 70, 124, 0.12);
+}
+
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0;
+  color: #735c69;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.consent-row input {
+  flex: 0 0 auto;
+  width: auto;
+  margin-top: 5px;
+  accent-color: #b83268;
+}
+
+.save-contact-button,
+.confirm-sos-button,
+.cancel-sos-button,
+.edit-contact-button,
+.call-emergency-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.save-contact-button,
+.confirm-sos-button {
+  border: 0;
+  background: linear-gradient(135deg, #c7467c, #a52d64);
+  color: white;
+  box-shadow: 0 7px 18px rgba(184, 50, 104, 0.17);
+}
+
+.save-contact-button:hover,
+.confirm-sos-button:hover {
+  box-shadow: 0 10px 24px rgba(184, 50, 104, 0.25);
+}
+
+.trusted-contact-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #edc7d9;
+  border-radius: 17px;
+  background: linear-gradient(135deg, #fff0f6, #fffafd 70%, #f4efff);
+  box-shadow: 0 7px 20px rgba(142, 58, 96, 0.06);
+  animation: emergency-enter 350ms ease both;
+}
+
+.contact-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(140deg, #d9578a, #9f2c66);
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 800;
+  box-shadow: 0 7px 16px rgba(184, 50, 104, 0.2);
+}
+
+.contact-details {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.contact-saved {
+  color: #9b2c5c;
+  font-size: 0.78rem;
+}
+
+.edit-contact-button {
+  margin-left: auto;
+  border: 1px solid #e8cbd9;
+  background: rgba(255, 255, 255, 0.75);
+  color: #79435b;
+}
+
+.edit-contact-button:hover,
+.cancel-sos-button:hover {
+  background: #fff0f6;
+}
+
+.sos-action-area {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #f0c2d0;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fff0f3, #fff8fb 72%, #fff2f8);
+}
+
+.sos-explainer {
+  flex: 1 1 220px;
+}
+
+.sos-explainer p,
+.emergency-footer p {
+  margin-bottom: 0;
+  color: #806b78;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.sos-demo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 175px;
+  min-height: 56px;
+  padding: 15px 21px;
+  border: 1px solid rgba(151, 25, 61, 0.28);
+  border-radius: 15px;
+  background: linear-gradient(135deg, #e74668, #bd234f);
+  color: white;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  box-shadow: 0 9px 23px rgba(189, 35, 79, 0.22);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.sos-demo-button:hover {
+  box-shadow: 0 13px 30px rgba(189, 35, 79, 0.3);
+}
+
+.sos-pulse {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.65);
+  animation: sos-pulse-animation 1.8s infinite;
+}
+
+.sos-confirm-card,
+.demo-alert-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 19px;
+  border-radius: 16px;
+  animation: emergency-enter 250ms ease both;
+}
+
+.sos-confirm-card {
+  border: 1px solid #eacb8a;
+  background: linear-gradient(145deg, #fff9e9, #fffdf7);
+}
+
+.demo-alert-card {
+  flex-direction: row;
+  align-items: flex-start;
+  border: 1px solid #c9b6ee;
+  background: linear-gradient(145deg, #f5efff, #fff8fc);
+}
+
+.demo-alert-card h3,
+.sos-confirm-card h3 {
+  margin-top: 0;
+}
+
+.demo-alert-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #a47bd8, #7653ad);
+  color: white;
+  font-weight: 800;
+}
+
+.demo-warning {
+  color: #8d344d;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.sos-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.cancel-sos-button {
+  border: 1px solid #e6ccd9;
+  background: #fff;
+  color: #704257;
+}
+
+.emergency-error {
+  padding: 12px 14px;
+  border: 1px solid #f1bdc9;
+  border-radius: 12px;
+  background: #fff0f2;
+  color: #a32745;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.emergency-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #efdce5;
+}
+
+.call-emergency-button {
+  border: 1px solid #a52d64;
+  background: #fff0f6;
+  color: #9b2c5c;
+}
+
+.call-emergency-button:hover {
+  background: #f8dce7;
+  box-shadow: 0 7px 17px rgba(184, 50, 104, 0.12);
+}
+
+.emergency-disclaimer {
+  margin-top: 16px;
+  color: #846e7b;
+  font-size: 0.78rem;
+  line-height: 1.75;
+}
+
+.emergency-trip-summary {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #efd2e0;
+  border-radius: 17px;
+  background: rgba(255, 247, 251, 0.88);
+}
+
+.trip-summary-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.trip-live-badge {
+  padding: 6px 10px;
+  border: 1px solid #e9c4d7;
+  border-radius: 999px;
+  background: #fff0f6;
+  color: #a52d64;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.trip-location {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.trip-location > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.trip-location small,
+.trip-metrics small {
+  color: #927786;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.trip-location strong {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.trip-location-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+  margin-top: 4px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #c7467c;
+}
+
+.start-dot {
+  background: #c7467c;
+}
+
+.destination-dot {
+  background: #9271c8;
+  box-shadow: 0 0 0 2px #9271c8;
+}
+
+.trip-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #f0dce5;
+}
+
+.trip-metrics > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trip-metrics strong {
+  color: #9b2c5c;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.sos-trip-context {
+  padding: 14px;
+  border: 1px solid #efd2e0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.sos-trip-context p {
+  margin: 7px 0;
+  overflow-wrap: anywhere;
+}
+
+@keyframes sos-pulse-animation {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.65);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
+@keyframes emergency-enter {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes emergency-orb {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-12px, 12px) scale(1.06);
+  }
+}
+
+@media (max-width: 600px) {
+  .sos-action-area {
+    padding: 15px;
+  }
+
+  .sos-demo-button {
+    width: 100%;
+  }
+
+  .trusted-contact-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .edit-contact-button {
+    margin-left: 0;
+  }
+
+  .trip-metrics {
+    grid-template-columns: 1fr;
+    gap: 13px;
+  }
+
+  .trip-metrics > div {
+    grid-template-columns: minmax(90px, 0.7fr) 1fr;
+    align-items: center;
+  }
+
+  .emergency-footer {
+    align-items: stretch;
+  }
+
+  .call-emergency-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sos-pulse,
+  .trusted-contact-card,
+  .sos-confirm-card,
+  .demo-alert-card,
+  .emergency-panel::before {
+    animation: none;
+  }
+
+  .save-contact-button,
+  .confirm-sos-button,
+  .call-emergency-button,
+  .sos-demo-button {
+    transition: none;
+  }
+}
