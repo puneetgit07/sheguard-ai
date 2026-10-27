@@ -1,4 +1,4 @@
-
+import uuid
 import asyncio
 from datetime import datetime, timezone
 from typing import Any
@@ -156,15 +156,33 @@ class RouteRequest(BaseModel):
     destination: str = Field(min_length=2, max_length=200)
     dest_lat: float | None = Field(default=None, ge=-90, le=90)
     dest_lon: float | None = Field(default=None, ge=-180, le=180)
+class LiveLocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: float | None = None
 
+
+class TrackingSession(BaseModel):
+    tracking_id: str
+    latitude: float
+    longitude: float
+    accuracy: float | None = None
+    updated_at: str
+    active: bool = True
+live_tracking_sessions: dict[str, TrackingSession] = {}
 
 async def geocode(
     client: httpx.AsyncClient,
     address: str,
 ) -> dict[str, Any]:
 
-    # Public Nominatim: keep requests at least 1 second apart.
-    await asyncio.sleep(1.1)
+    address = address.strip()
+
+    if not address:
+        raise HTTPException(
+            status_code=400,
+            detail="Location cannot be empty.",
+        )
 
     for attempt in range(3):
         try:
@@ -174,15 +192,54 @@ async def geocode(
                     "q": address,
                     "format": "jsonv2",
                     "limit": 1,
+                    "countrycodes": "in",
                 },
-                headers=HEADERS,
-                timeout=20.0,
+                headers={
+                    "User-Agent": (
+                        "SHEGUARD-AI/1.0 "
+                        "(hackathon safety application)"
+                    ),
+                    "Accept": "application/json",
+                },
+                timeout=httpx.Timeout(
+                    connect=10.0,
+                    read=20.0,
+                    write=10.0,
+                    pool=10.0,
+                ),
             )
 
-            if response.status_code in (429, 500, 502, 503, 504):
+            print(
+                f"Nominatim attempt {attempt + 1}: "
+                f"status={response.status_code}, "
+                f"address={address}"
+            )
+
+            if response.status_code == 429:
                 if attempt < 2:
-                    await asyncio.sleep(2.0 * (attempt + 1))
+                    await asyncio.sleep(3)
                     continue
+
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Location service rate limit reached. "
+                        "Please try again in a moment."
+                    ),
+                )
+
+            if response.status_code in (500, 502, 503, 504):
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                    continue
+
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Location service is temporarily unavailable. "
+                        "Please try again."
+                    ),
+                )
 
             response.raise_for_status()
 
@@ -194,35 +251,72 @@ async def geocode(
                     detail=f"Could not find this location: {address}",
                 )
 
+            result = results[0]
+
             return {
-                "lat": float(results[0]["lat"]),
-                "lon": float(results[0]["lon"]),
-                "label": results[0]["display_name"],
+                "lat": float(result["lat"]),
+                "lon": float(result["lon"]),
+                "label": result.get(
+                    "display_name",
+                    address,
+                ),
             }
 
-        except httpx.TimeoutException:
-            if attempt < 2:
-                await asyncio.sleep(2.0 * (attempt + 1))
-                continue
+        except HTTPException:
+            raise
 
-            raise HTTPException(
-                status_code=502,
-                detail="Location service timed out. Please try again.",
+        except httpx.TimeoutException as error:
+            print(
+                f"Nominatim timeout on attempt "
+                f"{attempt + 1}: {error}"
             )
 
-        except httpx.HTTPError:
             if attempt < 2:
-                await asyncio.sleep(2.0 * (attempt + 1))
+                await asyncio.sleep(2)
                 continue
 
             raise HTTPException(
                 status_code=502,
-                detail="Location service could not be reached. Please try again.",
+                detail=(
+                    "Location service timed out. "
+                    "Please try again."
+                ),
+            )
+
+        except httpx.HTTPError as error:
+            print(
+                f"Nominatim HTTP error on attempt "
+                f"{attempt + 1}: {error}"
+            )
+
+            if attempt < 2:
+                await asyncio.sleep(2)
+                continue
+
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Location service could not be reached. "
+                    "Please try again."
+                ),
+            )
+
+        except Exception as error:
+            print(
+                f"Unexpected geocoding error: {error}"
+            )
+
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "An unexpected location service error "
+                    "occurred."
+                ),
             )
 
     raise HTTPException(
         status_code=502,
-        detail="Location service is temporarily unavailable. Please try again.",
+        detail="Location service is temporarily unavailable.",
     )
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
@@ -266,9 +360,10 @@ async def get_route(request: RouteRequest):
             )
 
     try:
-        headers = {
-            "User-Agent": "SHEGUARD-AI/1.0"
-        }
+        headers={
+    "User-Agent": "SHEGUARD-AI/1.0 (hackathon safety application)",
+    "Accept": "application/json",
+}
 
         async with httpx.AsyncClient(
             headers=headers,
@@ -810,4 +905,93 @@ async def classify_claim(request: ClaimClassificationRequest):
             "The fetched page content has not been independently verified.",
             "Website availability and fetched text do not prove the claim is true.",
         ],
+    }
+@app.post("/api/live-tracking/start")
+async def start_live_tracking():
+    tracking_id = str(uuid.uuid4())
+
+    session = TrackingSession(
+        tracking_id=tracking_id,
+        latitude=0,
+        longitude=0,
+        accuracy=None,
+        updated_at=datetime.now(timezone.utc).isoformat(),
+        active=True,
+    )
+
+    live_tracking_sessions[tracking_id] = session
+
+    return {
+        "success": True,
+        "tracking_id": tracking_id,
+        "tracking_url": (
+            "https://sheguard-ai-1.onrender.com"
+            f"/?tracking={tracking_id}"
+        ),
+    }
+
+
+@app.post("/api/live-tracking/{tracking_id}/update")
+async def update_live_tracking(
+    tracking_id: str,
+    request: LiveLocationRequest,
+):
+    session = live_tracking_sessions.get(tracking_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Tracking session not found.",
+        )
+
+    session.latitude = request.latitude
+    session.longitude = request.longitude
+    session.accuracy = request.accuracy
+    session.updated_at = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    return {
+        "success": True,
+        "tracking_id": tracking_id,
+        "updated_at": session.updated_at,
+    }
+
+
+@app.get("/api/live-tracking/{tracking_id}")
+async def get_live_tracking(tracking_id: str):
+    session = live_tracking_sessions.get(tracking_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Tracking session not found.",
+        )
+
+    return {
+        "success": True,
+        "tracking_id": session.tracking_id,
+        "latitude": session.latitude,
+        "longitude": session.longitude,
+        "accuracy": session.accuracy,
+        "updated_at": session.updated_at,
+        "active": session.active,
+    }
+
+
+@app.post("/api/live-tracking/{tracking_id}/stop")
+async def stop_live_tracking(tracking_id: str):
+    session = live_tracking_sessions.get(tracking_id)
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Tracking session not found.",
+        )
+
+    session.active = False
+
+    return {
+        "success": True,
+        "message": "Live tracking stopped.",
     }
