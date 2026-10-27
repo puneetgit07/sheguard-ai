@@ -4,12 +4,8 @@ import "./App.css";
 import RouteMap from "./RouteMap";
 import EmergencyPanel from "./EmergencyPanel";
 import SafetyScene from "./SafetyScene";
-import { motion } from "framer-motion";
 import {
   ShieldCheck,
-  MapPinned,
-  Route,
-  HeartHandshake,
   Sparkles,
 } from "lucide-react";
 type RouteOption = {
