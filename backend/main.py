@@ -162,35 +162,68 @@ async def geocode(
     client: httpx.AsyncClient,
     address: str,
 ) -> dict[str, Any]:
+
     # Public Nominatim: keep requests at least 1 second apart.
     await asyncio.sleep(1.1)
 
-    response = await client.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={
-            "q": address,
-            "format": "jsonv2",
-            "limit": 1,
-        },
-        headers=HEADERS,
-        timeout=20.0,
+    for attempt in range(3):
+        try:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "q": address,
+                    "format": "jsonv2",
+                    "limit": 1,
+                },
+                headers=HEADERS,
+                timeout=20.0,
+            )
+
+            if response.status_code in (429, 500, 502, 503, 504):
+                if attempt < 2:
+                    await asyncio.sleep(2.0 * (attempt + 1))
+                    continue
+
+            response.raise_for_status()
+
+            results = response.json()
+
+            if not results:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Could not find this location: {address}",
+                )
+
+            return {
+                "lat": float(results[0]["lat"]),
+                "lon": float(results[0]["lon"]),
+                "label": results[0]["display_name"],
+            }
+
+        except httpx.TimeoutException:
+            if attempt < 2:
+                await asyncio.sleep(2.0 * (attempt + 1))
+                continue
+
+            raise HTTPException(
+                status_code=502,
+                detail="Location service timed out. Please try again.",
+            )
+
+        except httpx.HTTPError:
+            if attempt < 2:
+                await asyncio.sleep(2.0 * (attempt + 1))
+                continue
+
+            raise HTTPException(
+                status_code=502,
+                detail="Location service could not be reached. Please try again.",
+            )
+
+    raise HTTPException(
+        status_code=502,
+        detail="Location service is temporarily unavailable. Please try again.",
     )
-    response.raise_for_status()
-
-    results = response.json()
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Could not find this location: {address}",
-        )
-
-    return {
-        "lat": float(results[0]["lat"]),
-        "lon": float(results[0]["lon"]),
-        "label": results[0]["display_name"],
-    }
-
-
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
 
@@ -233,8 +266,17 @@ async def get_route(request: RouteRequest):
             )
 
     try:
-        async with httpx.AsyncClient() as client:
-            # Resolve the starting point from GPS or a typed address.
+        headers = {
+            "User-Agent": "SHEGUARD-AI/1.0"
+        }
+
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=httpx.Timeout(20.0),
+            follow_redirects=True,
+        ) as client:
+
+            # Resolve starting point
             if has_pair(request.start_lat, request.start_lon):
                 start = {
                     "lat": request.start_lat,
@@ -243,10 +285,11 @@ async def get_route(request: RouteRequest):
                 }
             else:
                 start = await geocode(
-                    client, request.start_location.strip()
+                    client,
+                    request.start_location.strip()
                 )
 
-            # Use supplied destination coordinates, or geocode its address.
+            # Resolve destination
             if has_pair(request.dest_lat, request.dest_lon):
                 end = {
                     "lat": request.dest_lat,
@@ -254,29 +297,57 @@ async def get_route(request: RouteRequest):
                     "label": request.destination,
                 }
             else:
-                end = await geocode(client, request.destination.strip())
+                end = await geocode(
+                    client,
+                    request.destination.strip()
+                )
 
-            route_response = await client.get(
-                "https://router.project-osrm.org/route/v1/driving/"
-                f"{start['lon']},{start['lat']};"
-                f"{end['lon']},{end['lat']}",
-                params={
-    "overview": "full",
-    "geometries": "geojson",
-    "steps": "false",
-    "alternatives": "3",
-},
-                timeout=30.0,
-            )
-            route_response.raise_for_status()
-            route_data = route_response.json()
+            # OSRM route request with retry
+            route_data = None
+
+            for attempt in range(3):
+                try:
+                    route_response = await client.get(
+                        "https://router.project-osrm.org/route/v1/driving/"
+                        f"{start['lon']},{start['lat']};"
+                        f"{end['lon']},{end['lat']}",
+                        params={
+                            "overview": "full",
+                            "geometries": "geojson",
+                            "steps": "false",
+                            "alternatives": "2",
+                        },
+                    )
+
+                    route_response.raise_for_status()
+                    route_data = route_response.json()
+                    break
+
+                except httpx.HTTPError:
+                    if attempt == 2:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                "The routing service is temporarily "
+                                "unavailable. Please try again."
+                            ),
+                        )
+
+                    await asyncio.sleep(1.5)
 
     except HTTPException:
         raise
+
     except httpx.HTTPError:
         raise HTTPException(
             status_code=502,
             detail="A map service could not be reached. Please try again.",
+        )
+
+    if not route_data:
+        raise HTTPException(
+            status_code=502,
+            detail="No response was received from the routing service.",
         )
 
     if route_data.get("code") != "Ok" or not route_data.get("routes"):
@@ -285,9 +356,6 @@ async def get_route(request: RouteRequest):
             detail="No driving route was found for these locations.",
         )
 
-    best_route = route_data["routes"][0]
-
-   
     routes = []
 
     for index, route in enumerate(route_data["routes"]):
@@ -312,7 +380,6 @@ async def get_route(request: RouteRequest):
         ),
         "attribution": "© OpenStreetMap contributors; routing by OSRM",
     }
-
 
 @app.post("/api/plan-trip")
 def plan_trip_legacy():
