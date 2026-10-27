@@ -205,7 +205,7 @@ const [assessingRisk, setAssessingRisk] = useState(false);
         };
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/route", {
+      const response = await fetch("https://sheguard-ai-sedv.onrender.com/api/route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -259,7 +259,7 @@ async function verifyRoute() {
 
   try {
     const response = await fetch(
-      "http://127.0.0.1:8000/api/verify-route",
+      "https://sheguard-ai-sedv.onrender.com/api/verify-route",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -304,7 +304,7 @@ async function assessRouteRisk() {
 
   try {
     const response = await fetch(
-      "http://127.0.0.1:8000/api/assess-risk",
+      "https://sheguard-ai-sedv.onrender.com/api/assess-risk",
       {
         method: "POST",
         headers: {
@@ -336,7 +336,7 @@ const classifyEvidence = async () => {
 
   try {
     const response = await fetch(
-      "http://127.0.0.1:8000/api/classify-evidence",
+      "https://sheguard-ai-sedv.onrender.com/api/classify-evidence",
       {
         method: "POST",
       }
@@ -371,7 +371,7 @@ const classifyClaim = async () => {
 
   try {
     const response = await fetch(
-      "http://127.0.0.1:8000/api/classify-claim",
+      "https://sheguard-ai-sedv.onrender.com/api/classify-claim",
       {
         method: "POST",
         headers: {
