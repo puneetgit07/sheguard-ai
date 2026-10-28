@@ -156,6 +156,7 @@ class RouteRequest(BaseModel):
     destination: str = Field(min_length=2, max_length=200)
     dest_lat: float | None = Field(default=None, ge=-90, le=90)
     dest_lon: float | None = Field(default=None, ge=-180, le=180)
+
 class LiveLocationRequest(BaseModel):
     latitude: float
     longitude: float
@@ -318,6 +319,7 @@ async def geocode(
         status_code=502,
         detail="Location service is temporarily unavailable.",
     )
+
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
 
@@ -353,17 +355,23 @@ async def get_route(request: RouteRequest):
         )
 
     if not has_pair(request.start_lat, request.start_lon):
-        if not request.start_location or not request.start_location.strip():
+        if (
+            not request.start_location
+            or not request.start_location.strip()
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Provide GPS coordinates or a starting address.",
             )
 
     try:
-        headers={
-    "User-Agent": "SHEGUARD-AI/1.0 (hackathon safety application)",
-    "Accept": "application/json",
-}
+        headers = {
+            "User-Agent": (
+                "SHEGUARD-AI/1.0 "
+                "(hackathon safety application)"
+            ),
+            "Accept": "application/json",
+        }
 
         async with httpx.AsyncClient(
             headers=headers,
@@ -372,7 +380,10 @@ async def get_route(request: RouteRequest):
         ) as client:
 
             # Resolve starting point
-            if has_pair(request.start_lat, request.start_lon):
+            if has_pair(
+                request.start_lat,
+                request.start_lon,
+            ):
                 start = {
                     "lat": request.start_lat,
                     "lon": request.start_lon,
@@ -381,11 +392,14 @@ async def get_route(request: RouteRequest):
             else:
                 start = await geocode(
                     client,
-                    request.start_location.strip()
+                    request.start_location.strip(),
                 )
 
             # Resolve destination
-            if has_pair(request.dest_lat, request.dest_lon):
+            if has_pair(
+                request.dest_lat,
+                request.dest_lon,
+            ):
                 end = {
                     "lat": request.dest_lat,
                     "lon": request.dest_lon,
@@ -394,7 +408,7 @@ async def get_route(request: RouteRequest):
             else:
                 end = await geocode(
                     client,
-                    request.destination.strip()
+                    request.destination.strip(),
                 )
 
             # OSRM route request with retry
@@ -403,7 +417,8 @@ async def get_route(request: RouteRequest):
             for attempt in range(3):
                 try:
                     route_response = await client.get(
-                        "https://router.project-osrm.org/route/v1/driving/"
+                        "https://router.project-osrm.org/"
+                        "route/v1/driving/"
                         f"{start['lon']},{start['lat']};"
                         f"{end['lon']},{end['lat']}",
                         params={
@@ -412,14 +427,36 @@ async def get_route(request: RouteRequest):
                             "steps": "false",
                             "alternatives": "2",
                         },
+                        headers={
+                            "User-Agent": (
+                                "SHEGUARD-AI/1.0 "
+                                "(hackathon safety application)"
+                            ),
+                            "Accept": "application/json",
+                        },
+                        timeout=httpx.Timeout(
+                            connect=10.0,
+                            read=30.0,
+                            write=10.0,
+                            pool=10.0,
+                        ),
                     )
 
-                    route_response.raise_for_status()
-                    route_data = route_response.json()
-                    break
+                    print(
+                        f"OSRM attempt {attempt + 1}: "
+                        f"status={route_response.status_code}"
+                    )
 
-                except httpx.HTTPError:
-                    if attempt == 2:
+                    if route_response.status_code >= 500:
+                        print(
+                            "OSRM server error:",
+                            route_response.text[:500],
+                        )
+
+                        if attempt < 2:
+                            await asyncio.sleep(2)
+                            continue
+
                         raise HTTPException(
                             status_code=502,
                             detail=(
@@ -428,15 +465,73 @@ async def get_route(request: RouteRequest):
                             ),
                         )
 
-                    await asyncio.sleep(1.5)
+                    route_response.raise_for_status()
+
+                    route_data = route_response.json()
+
+                    print(
+                        "OSRM response code:",
+                        route_data.get("code"),
+                    )
+
+                    break
+
+                except httpx.TimeoutException as error:
+                    print(
+                        f"OSRM timeout on attempt "
+                        f"{attempt + 1}: {error}"
+                    )
+
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+                        continue
+
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "The routing service timed out. "
+                            "Please try again."
+                        ),
+                    )
+
+                except httpx.HTTPError as error:
+                    print(
+                        f"OSRM HTTP error on attempt "
+                        f"{attempt + 1}: {error}"
+                    )
+
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+                        continue
+
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "The routing service is temporarily "
+                            "unavailable. Please try again."
+                        ),
+                    )
 
     except HTTPException:
         raise
 
-    except httpx.HTTPError:
+    except httpx.HTTPError as error:
+        print(f"Route HTTP error: {error}")
+
         raise HTTPException(
             status_code=502,
-            detail="A map service could not be reached. Please try again.",
+            detail=(
+                "A map service could not be reached. "
+                "Please try again."
+            ),
+        )
+
+    except Exception as error:
+        print(f"Unexpected route error: {error}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected route error occurred.",
         )
 
     if not route_data:
@@ -445,7 +540,10 @@ async def get_route(request: RouteRequest):
             detail="No response was received from the routing service.",
         )
 
-    if route_data.get("code") != "Ok" or not route_data.get("routes"):
+    if (
+        route_data.get("code") != "Ok"
+        or not route_data.get("routes")
+    ):
         raise HTTPException(
             status_code=404,
             detail="No driving route was found for these locations.",
@@ -453,28 +551,43 @@ async def get_route(request: RouteRequest):
 
     routes = []
 
-    for index, route in enumerate(route_data["routes"]):
-        routes.append({
-            "id": index + 1,
-            "distance_km": round(route["distance"] / 1000, 2),
-            "estimated_minutes": round(route["duration"] / 60),
-            "geometry": route["geometry"],
-        })
+    for index, route in enumerate(
+        route_data["routes"]
+    ):
+        routes.append(
+            {
+                "id": index + 1,
+                "distance_km": round(
+                    route["distance"] / 1000,
+                    2,
+                ),
+                "estimated_minutes": round(
+                    route["duration"] / 60
+                ),
+                "geometry": route["geometry"],
+            }
+        )
 
     return {
         "success": True,
         "source": "OpenStreetMap / OSRM",
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(
+            timezone.utc
+        ).isoformat(),
         "start": start,
         "destination": end,
         "routes": routes,
         "safety_status": "unverified",
         "safety_note": (
-            "These are road-route estimates, not safety assessments. "
-            "Live traffic, incidents and area safety have not been verified."
+            "These are road-route estimates, not safety "
+            "assessments. Live traffic, incidents and area "
+            "safety have not been verified."
         ),
-        "attribution": "© OpenStreetMap contributors; routing by OSRM",
+        "attribution": (
+            "© OpenStreetMap contributors; routing by OSRM"
+        ),
     }
+    
 
 @app.post("/api/plan-trip")
 def plan_trip_legacy():
