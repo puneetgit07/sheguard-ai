@@ -138,11 +138,10 @@ app.add_middleware(
         "http://127.0.0.1:5175",
         "https://sheguard-ai-1.onrender.com",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 HEADERS = {
     "User-Agent": "SHEGUARD-AI-Prototype/1.0"
 }
