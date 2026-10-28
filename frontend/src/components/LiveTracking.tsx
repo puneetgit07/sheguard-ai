@@ -1,6 +1,24 @@
 import { useEffect, useState } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import "./LiveTracking.css";
+delete (L.Icon.Default.prototype as any)._getIconUrl;
 
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+  iconUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  shadowUrl:
+    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+});
 const BACKEND_URL = "https://sheguard-ai-sedv.onrender.com";
 
 interface TrackingData {
@@ -12,7 +30,21 @@ interface TrackingData {
   updated_at: string;
   active: boolean;
 }
+function MapUpdater({
+  latitude,
+  longitude,
+}: {
+  latitude: number;
+  longitude: number;
+}) {
+  const map = useMap();
 
+  useEffect(() => {
+    map.setView([latitude, longitude], 15);
+  }, [latitude, longitude, map]);
+
+  return null;
+}
 export default function LiveTracking() {
   const [trackingData, setTrackingData] =
     useState<TrackingData | null>(null);
@@ -188,31 +220,42 @@ export default function LiveTracking() {
         </div>
 
         <div className="tracking-card map-card">
+  <MapContainer
+    center={[
+      trackingData.latitude,
+      trackingData.longitude,
+    ]}
+    zoom={15}
+    scrollWheelZoom={true}
+    className="live-map"
+  >
+    <TileLayer
+      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    />
 
-          <div className="map-placeholder">
+    <MapUpdater
+      latitude={trackingData.latitude}
+      longitude={trackingData.longitude}
+    />
 
-            <div className="map-pin">
-              📍
-            </div>
-
-            <h2>Live Location</h2>
-
-            <p>
-              Latest GPS coordinates are being
-              updated automatically.
-            </p>
-
-            <a
-              href={mapUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View location on Google Maps →
-            </a>
-
-          </div>
-
-        </div>
+    <Marker
+      position={[
+        trackingData.latitude,
+        trackingData.longitude,
+      ]}
+    >
+      <Popup>
+        <strong>SHEGUARD AI</strong>
+        <br />
+        Live Location
+        <br />
+        {trackingData.latitude.toFixed(6)},{" "}
+        {trackingData.longitude.toFixed(6)}
+      </Popup>
+    </Marker>
+  </MapContainer>
+</div>
 
       </div>
 
