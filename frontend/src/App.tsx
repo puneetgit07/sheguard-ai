@@ -1,9 +1,12 @@
 
 import { useState } from "react";
 import "./App.css";
+
 import RouteMap from "./RouteMap";
 import EmergencyPanel from "./EmergencyPanel";
 import SafetyScene from "./SafetyScene";
+import LiveTracking from "./components/LiveTracking";
+
 import {
   ShieldCheck,
   Sparkles,
@@ -399,15 +402,23 @@ const selectedRoute =
     (route) => route.id === selectedRouteId
   ) ?? routeResult?.routes[0] ?? null;
 
-const activeTrip = routeResult && selectedRoute
-  ? {
-      start: routeResult.start.label,
-      destination: routeResult.destination.label,
-      distanceKm: selectedRoute.distance_km,
-      estimatedMinutes: selectedRoute.estimated_minutes,
-      routeId: selectedRoute.id,
-    }
-  : null;
+  const activeTrip = routeResult && selectedRoute
+    ? {
+        start: routeResult.start.label,
+        destination: routeResult.destination.label,
+        distanceKm: selectedRoute.distance_km,
+        estimatedMinutes: selectedRoute.estimated_minutes,
+        routeId: selectedRoute.id,
+      }
+    : null;
+
+  const trackingId =
+    new URLSearchParams(window.location.search).get("tracking");
+
+  if (trackingId) {
+    return <LiveTracking />;
+  }
+
   return (
     <main className="app">
       <header className="topbar">

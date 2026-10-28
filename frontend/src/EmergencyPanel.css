@@ -543,4 +543,91 @@
   .sos-demo-button {
     transition: none;
   }
+}.trusted-contacts-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sos-countdown-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-width: 250px;
+  padding: 14px 18px;
+  border: 1px solid #efb8c8;
+  border-radius: 16px;
+  background: #fff0f5;
+}
+
+.sos-countdown-area strong {
+  color: #9b2c5c;
+}
+
+.sos-countdown-number {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e74668, #bd234f);
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 900;
+  box-shadow: 0 7px 18px rgba(189, 35, 79, 0.25);
+  animation: countdown-pop 1s ease infinite;
+}
+
+.sos-confirm-card .trusted-contact-card {
+  margin-top: 8px;
+}
+
+.sos-confirm-card .confirm-sos-button {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sos-action-area button:disabled,
+.contact-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@keyframes countdown-pop {
+  0% {
+    transform: scale(0.9);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
+
+  100% {
+    transform: scale(0.9);
+  }
+}
+
+@media (max-width: 600px) {
+  .sos-countdown-area {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .sos-confirm-card .confirm-sos-button {
+    margin-left: 0;
+    width: 100%;
+  }
+}.sos-trip-context a {
+  display: inline-block;
+  margin-top: 8px;
+  color: #bd234f;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.sos-trip-context button {
+  display: block;
+  margin-top: 10px;
 }

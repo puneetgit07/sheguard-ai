@@ -1,0 +1,291 @@
+.live-tracking-page {
+  min-height: 100vh;
+  background: #f7f9f8;
+  padding: 30px;
+  color: #17221c;
+}
+
+.tracking-header {
+  max-width: 1100px;
+  margin: 0 auto 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.tracking-brand {
+  margin: 0 0 5px;
+  color: #16834a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+}
+
+.tracking-header h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.tracking-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 30px;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.tracking-status span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.tracking-status.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tracking-status.active span {
+  background: #16a34a;
+}
+
+.tracking-status.inactive {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.tracking-status.inactive span {
+  background: #dc2626;
+}
+
+.tracking-grid {
+  max-width: 1100px;
+  margin: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.tracking-card {
+  background: white;
+  border: 1px solid #e4ebe7;
+  border-radius: 20px;
+  padding: 25px;
+  box-shadow: 0 8px 30px rgba(23, 34, 28, 0.06);
+}
+
+.location-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.card-label {
+  margin: 0 0 7px;
+  color: #7a8880;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.location-card h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.gps-icon {
+  font-size: 30px;
+}
+
+.coordinates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 25px;
+}
+
+.coordinates div {
+  background: #f7f9f8;
+  border-radius: 12px;
+  padding: 15px;
+}
+
+.coordinates span {
+  display: block;
+  color: #7a8880;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.coordinates strong {
+  font-size: 16px;
+}
+
+.accuracy {
+  margin-top: 15px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #effaf3;
+  color: #16834a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.updated {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #edf1ee;
+}
+
+.updated span {
+  display: block;
+  color: #7a8880;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.updated strong {
+  font-size: 14px;
+}
+
+.open-map-button {
+  display: block;
+  margin-top: 20px;
+  text-align: center;
+  padding: 13px;
+  border-radius: 12px;
+  background: #16834a;
+  color: white;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.map-card {
+  min-height: 360px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.map-placeholder {
+  height: 100%;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 30px;
+  background:
+    linear-gradient(
+      135deg,
+      #eaf7ee,
+      #f7f9f8
+    );
+}
+
+.map-pin {
+  font-size: 55px;
+  margin-bottom: 10px;
+}
+
+.map-placeholder h2 {
+  margin: 0 0 8px;
+}
+
+.map-placeholder p {
+  max-width: 350px;
+  color: #68766e;
+  line-height: 1.6;
+}
+
+.map-placeholder a {
+  color: #16834a;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.tracking-info {
+  max-width: 1100px;
+  margin: 20px auto 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.tracking-info > div {
+  background: white;
+  border: 1px solid #e4ebe7;
+  border-radius: 15px;
+  padding: 18px;
+  display: flex;
+  gap: 12px;
+}
+
+.tracking-info > div > span {
+  font-size: 24px;
+}
+
+.tracking-info strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.tracking-info p {
+  margin: 0;
+  color: #748078;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.tracking-footer {
+  text-align: center;
+  margin: 25px 0 0;
+  color: #87928c;
+  font-size: 12px;
+}
+
+.tracking-loader {
+  text-align: center;
+  font-weight: 700;
+}
+
+.tracking-icon {
+  font-size: 45px;
+  text-align: center;
+}
+
+.tracking-card > h1,
+.tracking-card > p {
+  text-align: center;
+}
+
+@media (max-width: 800px) {
+  .live-tracking-page {
+    padding: 18px;
+  }
+
+  .tracking-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tracking-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tracking-info {
+    grid-template-columns: 1fr;
+  }
+
+  .tracking-header h1 {
+    font-size: 26px;
+  }
+
+  .coordinates {
+    grid-template-columns: 1fr;
+  }
+}
