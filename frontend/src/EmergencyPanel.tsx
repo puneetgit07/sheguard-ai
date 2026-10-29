@@ -303,7 +303,7 @@ const activatingRef = useRef(false);
     watchIdRef.current = watchId;
   }
 
- async function activateSOS() {
+async function activateSOS() {
   if (activatingRef.current) {
     return;
   }
@@ -316,7 +316,8 @@ const activatingRef = useRef(false);
 
   try {
     // 1. Get current GPS location
-    const currentLocation = await getCurrentLocation();
+    const currentLocation =
+      await getCurrentLocation();
 
     setLocation(currentLocation);
 
@@ -339,38 +340,51 @@ const activatingRef = useRef(false);
 
     const data = await response.json();
 
-    console.log("Tracking ID:", data.tracking_id);
-    console.log("Tracking URL:", data.tracking_url);
-
-    if (!data.tracking_id || !data.tracking_url) {
+    if (
+      !data.tracking_id ||
+      !data.tracking_url
+    ) {
       throw new Error(
         "Backend started incorrectly: tracking ID or tracking URL is missing."
       );
     }
 
+    console.log(
+      "Tracking ID:",
+      data.tracking_id
+    );
+
+    console.log(
+      "Tracking URL:",
+      data.tracking_url
+    );
+
     // 3. Save tracking information
     setTrackingId(data.tracking_id);
     setTrackingUrl(data.tracking_url);
 
-    // IMPORTANT:
-    // Keep latest tracking URL immediately available
-    trackingUrlRef.current = data.tracking_url;
+    trackingUrlRef.current =
+      data.tracking_url;
 
     // 4. Send first location immediately
-    const updateResponse = await fetch(
-      `${BACKEND_URL}/api/live-tracking/${data.tracking_id}/update`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude,
-          accuracy: currentLocation.accuracy,
-        }),
-      }
-    );
+    const updateResponse =
+      await fetch(
+        `${BACKEND_URL}/api/live-tracking/${data.tracking_id}/update`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            latitude:
+              currentLocation.latitude,
+            longitude:
+              currentLocation.longitude,
+            accuracy:
+              currentLocation.accuracy,
+          }),
+        }
+      );
 
     if (!updateResponse.ok) {
       throw new Error(
@@ -379,13 +393,32 @@ const activatingRef = useRef(false);
     }
 
     // 5. Start continuous GPS updates
-    startLocationTracking(data.tracking_id);
+    startLocationTracking(
+      data.tracking_id
+    );
 
-    // 6. Mark SOS active only after everything succeeds
+    // 6. Activate SOS
     setSosActive(true);
+
+    // 7. Automatically send SMS
+    const smsResult =
+      await sendSOSAlerts(
+        currentLocation,
+        data.tracking_url
+      );
+
+    console.log(
+      "SOS SMS result:",
+      smsResult
+    );
+
   } catch (activationError) {
-    // IMPORTANT:
-    // Do NOT mark SOS active if activation failed.
+
+    console.error(
+      "SOS activation error:",
+      activationError
+    );
+
     setSosActive(false);
 
     trackingUrlRef.current = null;
@@ -393,11 +426,14 @@ const activatingRef = useRef(false);
     setTrackingId(null);
     setTrackingUrl(null);
 
+    stopLocationWatcher();
+
     setError(
       activationError instanceof Error
         ? activationError.message
-        : "Could not activate live tracking."
+        : "Could not activate SOS."
     );
+
   } finally {
     activatingRef.current = false;
     setLocationLoading(false);
@@ -469,70 +505,44 @@ setError("");
 
     setCountdown(5);
   }
+  async function sendSOSAlerts(
+  currentLocation: LocationData,
+  currentTrackingUrl: string
+) {
+  if (contacts.length === 0) {
+    throw new Error(
+      "No trusted contacts are available."
+    );
+  }
 
-  function createWhatsAppMessage() {
-    let locationText =
-      "Location unavailable. Please contact me immediately.";
-
-    if (location) {
-      const mapsUrl =
-        `https://www.google.com/maps?q=` +
-        `${location.latitude},${location.longitude}`;
-
-      locationText =
-        `My current location: ${mapsUrl}`;
+  const response = await fetch(
+    `${BACKEND_URL}/api/send-sos`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contacts,
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        tracking_url: currentTrackingUrl,
+      }),
     }
+  );
 
-    let trackingText = "";
+  const data = await response.json();
 
-const latestTrackingUrl = trackingUrlRef.current;
+  if (!response.ok) {
+    throw new Error(
+      data?.detail?.message ||
+        data?.detail ||
+        "Could not send SOS alerts."
+    );
+  }
 
-if (latestTrackingUrl) {
-  trackingText =
-    `\n\n📍 LIVE LOCATION TRACKING:` +
-    `\n${latestTrackingUrl}` +
-    `\n\nThis link shows my latest SHEGUARD AI location.`;
+  return data;
 }
-
-    let tripText = "";
-
-    if (trip) {
-      tripText =
-        `\n\nTrip details:` +
-        `\nFrom: ${trip.start}` +
-        `\nTo: ${trip.destination}` +
-        `\nRoute: ${trip.routeId}` +
-        `\nDistance: ${trip.distanceKm.toFixed(1)} km` +
-        `\nEstimated time: ${trip.estimatedMinutes} min`;
-    }
-
-    return (
-      `🚨 SHEGUARD AI SOS ALERT 🚨` +
-      `\n\nI may need immediate assistance.` +
-      `\n\n${locationText}` +
-      `${trackingText}` +
-      `${tripText}` +
-      `\n\nPlease check on me immediately.` +
-      `\n\nSent via SHEGUARD AI`
-    );
-  }
-
-  function openWhatsApp(
-    contact: TrustedContact
-  ) {
-    const message =
-      createWhatsAppMessage();
-
-    const whatsappUrl =
-      `https://wa.me/91${contact.phone}` +
-      `?text=${encodeURIComponent(message)}`;
-
-    window.open(
-      whatsappUrl,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  }
 
   return (
     <section className="panel emergency-panel">
@@ -903,97 +913,29 @@ if (latestTrackingUrl) {
               </strong>
 
               <p>
-                Trusted contacts can receive
-                your current location and live
-                tracking link through WhatsApp.
-              </p>
+  Your trusted contacts have been
+  notified automatically by SMS with
+  your current location and live
+  tracking link.
+</p>
             </div>
 
             <div className="sos-confirm-actions">
-              <button
-                type="button"
-                className="confirm-sos-button"
-                onClick={() =>
-                  contacts.length > 0 &&
-                  openWhatsApp(
-                    contacts[0]
-                  )
-                }
-              >
-                Share SOS on WhatsApp
-              </button>
+  <div className="sms-sent-status">
+    📱 SMS alerts sent to your trusted contacts.
+  </div>
 
-              <button
-                type="button"
-                className="cancel-sos-button"
-                onClick={cancelSOS}
-              >
-                Stop SOS
-              </button>
-            </div>
+  <button
+    type="button"
+    className="cancel-sos-button"
+    onClick={cancelSOS}
+  >
+    Stop SOS
+  </button>
+</div>
           </div>
         </div>
       )}
-
-      {/* WHATSAPP CONTACTS */}
-
-      {sosActive &&
-        contacts.length > 0 && (
-          <div className="sos-confirm-card">
-            <h3>
-              Send SOS to trusted contacts
-            </h3>
-
-            <p>
-              Choose a contact to open WhatsApp
-              with the emergency message ready.
-            </p>
-
-            {contacts.map(
-              (contact) => (
-                <div
-                  className="trusted-contact-card"
-                  key={`whatsapp-${contact.id}`}
-                >
-                  <span className="contact-avatar">
-                    {contact.name
-                      .charAt(0)
-                      .toUpperCase()}
-                  </span>
-
-                  <div className="contact-details">
-                    <strong>
-                      {contact.name}
-                    </strong>
-
-                    <span>
-                      +91 {contact.phone}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="confirm-sos-button"
-                    onClick={() =>
-                      openWhatsApp(
-                        contact
-                      )
-                    }
-                  >
-                    WhatsApp
-                  </button>
-                </div>
-              )
-            )}
-
-            <p className="demo-warning">
-              WhatsApp opens with a
-              pre-filled emergency message.
-              The final Send action is
-              controlled by WhatsApp.
-            </p>
-          </div>
-        )}
 
       {/* EMERGENCY FOOTER */}
 
@@ -1018,11 +960,11 @@ if (latestTrackingUrl) {
       </div>
 
       <p className="emergency-disclaimer">
-        SHEGUARD AI is not an emergency service.
-        Location access requires browser permission.
-        WhatsApp sharing opens a pre-filled message
-        and requires user confirmation before sending.
-      </p>
+  SHEGUARD AI is not an emergency service.
+  Location access requires browser permission.
+  SOS alerts are sent to saved trusted contacts
+  through SMS using the configured TextBee gateway.
+</p>
     </section>
   );
 }

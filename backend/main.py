@@ -319,6 +319,35 @@ async def geocode(
         status_code=502,
         detail="Location service is temporarily unavailable.",
     )
+class SOSContact(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    phone: str = Field(min_length=10, max_length=15)
+
+
+class SOSRequest(BaseModel):
+    contacts: list[SOSContact] = Field(min_length=1, max_length=10)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    tracking_url: str = Field(min_length=1, max_length=500)
+
+
+def normalize_indian_phone(phone: str) -> str:
+    cleaned = re.sub(r"[^\d+]", "", phone)
+
+    if cleaned.startswith("+91"):
+        number = cleaned[3:]
+    elif cleaned.startswith("91") and len(cleaned) == 12:
+        number = cleaned[2:]
+    else:
+        number = cleaned
+
+    if not re.fullmatch(r"[6-9]\d{9}", number):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid Indian mobile number: {phone}",
+        )
+
+    return f"+91{number}"
 async def send_textbee_sms(
     recipients: list[str],
     message: str,
@@ -387,7 +416,92 @@ async def test_textbee():
         "success": True,
         "message": "Test SMS request sent to TextBee.",
         "textbee_response": result,
-    }    
+    }   
+@app.post("/api/send-sos")
+async def send_sos(request: SOSRequest):
+
+    maps_url = (
+        "https://www.google.com/maps?q="
+        f"{request.latitude},{request.longitude}"
+    )
+
+    results = []
+
+    for contact in request.contacts:
+        phone = normalize_indian_phone(contact.phone)
+
+        message = (
+            "🚨 SheGuard AI – SOS Alert\n\n"
+            f"Hi, {contact.name}—maine SheGuard AI par "
+            "apna emergency alert trigger kiya hai aur "
+            "mujhe shayad madad ki zaroorat hai.\n\n"
+            "Please mujhe turant call karo ya mera status check karo:\n"
+            f"📍 Location: {maps_url}\n"
+            f"🗺️ Live Tracking: {request.tracking_url}\n\n"
+            "— Sent via SheGuard AI"
+        )
+
+        try:
+            textbee_response = await send_textbee_sms(
+                recipients=[phone],
+                message=message,
+            )
+
+            results.append(
+                {
+                    "name": contact.name,
+                    "phone": phone,
+                    "success": True,
+                    "textbee_response": textbee_response,
+                }
+            )
+
+        except HTTPException as error:
+            print(
+                f"SOS SMS failed for {contact.name}: "
+                f"{error.detail}"
+            )
+
+            results.append(
+                {
+                    "name": contact.name,
+                    "phone": phone,
+                    "success": False,
+                    "error": error.detail,
+                }
+            )
+
+    successful = [
+        result
+        for result in results
+        if result["success"]
+    ]
+
+    failed = [
+        result
+        for result in results
+        if not result["success"]
+    ]
+
+    if not successful:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "SOS was activated, but no SMS could be sent.",
+                "results": results,
+            },
+        )
+
+    return {
+        "success": True,
+        "message": (
+            f"SOS SMS sent to {len(successful)} "
+            f"of {len(results)} trusted contacts."
+        ),
+        "sent_count": len(successful),
+        "failed_count": len(failed),
+        "results": results,
+    } 
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
 
