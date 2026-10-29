@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -318,7 +319,75 @@ async def geocode(
         status_code=502,
         detail="Location service is temporarily unavailable.",
     )
+async def send_textbee_sms(
+    recipients: list[str],
+    message: str,
+) -> dict[str, Any]:
 
+    api_key = os.getenv("TEXTBEE_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="TextBee API key is not configured.",
+        )
+
+    url = "https://api.textbee.dev/api/v1/gateway/send-sms"
+
+    headers = {
+        "x-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "recipients": recipients,
+        "message": message,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                url,
+                headers=headers,
+                json=payload,
+            )
+
+        if response.status_code >= 400:
+            print(
+                "TextBee error:",
+                response.status_code,
+                response.text[:1000],
+            )
+
+            raise HTTPException(
+                status_code=502,
+                detail="TextBee could not send the SMS.",
+            )
+
+        return response.json()
+
+    except httpx.HTTPError as error:
+        print(f"TextBee HTTP error: {error}")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Could not connect to TextBee.",
+        )
+@app.post("/api/test-textbee")
+async def test_textbee():
+    result = await send_textbee_sms(
+        recipients=["+91XXXXXXXXXX"],
+        message=(
+            "SHEGUARD AI test alert 🚨\n"
+            "TextBee integration is working successfully."
+        ),
+    )
+
+    return {
+        "success": True,
+        "message": "Test SMS request sent to TextBee.",
+        "textbee_response": result,
+    }    
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
 
