@@ -376,7 +376,7 @@ async def send_textbee_sms(
 @app.post("/api/test-textbee")
 async def test_textbee():
     result = await send_textbee_sms(
-        recipients=["+917571037033git add backend/main.py"],
+        recipients=["+917571037033"],
         message=(
             "SHEGUARD AI test alert 🚨\n"
             "TextBee integration is working successfully."
