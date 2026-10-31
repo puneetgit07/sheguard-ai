@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field
 import re
 from html import unescape
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+load_dotenv()
 # Reference sources for SHEGUARD AI.
 # These are general emergency resources, not live route-safety evidence.
 
@@ -185,7 +188,7 @@ async def geocode(
             detail="Location cannot be empty.",
         )
 
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             response = await client.get(
                 "https://nominatim.openstreetmap.org/search",
@@ -203,10 +206,10 @@ async def geocode(
                     "Accept": "application/json",
                 },
                 timeout=httpx.Timeout(
-                    connect=10.0,
-                    read=20.0,
-                    write=10.0,
-                    pool=10.0,
+                    connect=5.0,
+                    read=10.0,
+                    write=5.0,
+                    pool=5.0,
                 ),
             )
 
@@ -217,8 +220,8 @@ async def geocode(
             )
 
             if response.status_code == 429:
-                if attempt < 2:
-                    await asyncio.sleep(3)
+                if attempt == 0:
+                    await asyncio.sleep(1)
                     continue
 
                 raise HTTPException(
@@ -230,8 +233,8 @@ async def geocode(
                 )
 
             if response.status_code in (500, 502, 503, 504):
-                if attempt < 2:
-                    await asyncio.sleep(2)
+                if attempt == 0:
+                    await asyncio.sleep(1)
                     continue
 
                 raise HTTPException(
@@ -272,8 +275,8 @@ async def geocode(
                 f"{attempt + 1}: {error}"
             )
 
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt == 0:
+                await asyncio.sleep(1)
                 continue
 
             raise HTTPException(
@@ -290,8 +293,8 @@ async def geocode(
                 f"{attempt + 1}: {error}"
             )
 
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt == 0:
+                await asyncio.sleep(1)
                 continue
 
             raise HTTPException(
@@ -319,6 +322,288 @@ async def geocode(
         status_code=502,
         detail="Location service is temporarily unavailable.",
     )
+async def get_tomtom_incidents(
+    client: httpx.AsyncClient,
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+) -> list[dict[str, Any]]:
+
+    api_key = os.getenv("TOMTOM_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="TomTom API key is not configured.",
+        )
+
+    url = (
+        "https://api.tomtom.com/"
+        "maps/orbis/traffic/incidents/details"
+    )
+
+    headers = {
+        "TomTom-Api-Key": api_key,
+        "TomTom-Api-Version": "2",
+        "Accept": "application/json",
+        "Attributes": (
+            "incidents("
+            "geometry(type,coordinates),"
+            "properties("
+            "id,"
+            "iconCategory,"
+            "magnitudeOfDelay,"
+            "events,"
+            "startTime,"
+            "endTime,"
+            "from,"
+            "to,"
+            "lengthInMeters,"
+            "delayInSeconds,"
+            "roadNumbers,"
+            "timeValidity,"
+            "probabilityOfOccurrence,"
+            "numberOfReports,"
+            "lastReportTime"
+            ")"
+            ")"
+        ),
+    }
+
+    params = {
+        "apiVersion": 2,
+        "bbox": (
+            f"{min_lon},{min_lat},"
+            f"{max_lon},{max_lat}"
+        ),
+        "timeValidity": "present",
+    }
+
+    try:
+        response = await client.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=10.0,
+                write=5.0,
+                pool=5.0,
+            ),
+        )
+
+        print(
+            "TomTom incidents:",
+            response.status_code,
+            response.text[:500],
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        return data.get("incidents", [])
+
+    except httpx.HTTPError as error:
+        print(f"TomTom HTTP error: {error}")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Could not fetch live traffic incidents.",
+        )
+
+def get_route_bbox(
+    geometry: dict[str, Any],
+) -> tuple[float, float, float, float]:
+
+    coordinates = geometry.get("coordinates", [])
+
+    if not coordinates:
+        raise ValueError(
+            "Route geometry does not contain coordinates."
+        )
+
+    longitudes = []
+    latitudes = []
+
+    for point in coordinates:
+        if len(point) < 2:
+            continue
+
+        longitude = float(point[0])
+        latitude = float(point[1])
+
+        longitudes.append(longitude)
+        latitudes.append(latitude)
+
+    if not longitudes or not latitudes:
+        raise ValueError(
+            "Route geometry contains no valid coordinates."
+        )
+
+    return (
+        min(longitudes),
+        min(latitudes),
+        max(longitudes),
+        max(latitudes),
+    )
+
+
+def parse_tomtom_incident(
+    incident: dict[str, Any],
+) -> dict[str, Any]:
+
+    properties = incident.get(
+        "properties",
+        {},
+    )
+
+    events = properties.get(
+        "events",
+        [],
+    )
+
+    event_names = []
+
+    for event in events:
+        description = event.get(
+            "description"
+        )
+
+        if description:
+            event_names.append(description)
+
+    return {
+        "id": properties.get("id"),
+        "category": properties.get(
+            "iconCategory",
+            "unknown",
+        ),
+        "severity": properties.get(
+            "magnitudeOfDelay",
+            0,
+        ),
+        "description": (
+            ", ".join(event_names)
+            if event_names
+            else "Live traffic incident reported."
+        ),
+        "road": (
+            properties.get("from")
+            or properties.get("to")
+            or "Unknown road"
+        ),
+        "delay_seconds": properties.get(
+            "delayInSeconds",
+            0,
+        ),
+        "road_closed": False,
+        "start_time": properties.get(
+            "startTime"
+        ),
+        "end_time": properties.get(
+            "endTime"
+        ),
+        "last_report_time": properties.get(
+            "lastReportTime"
+        ),
+    }
+async def verify_single_route(
+    client: httpx.AsyncClient,
+    route: dict[str, Any],
+) -> dict[str, Any]:
+
+    try:
+        bbox = get_route_bbox(
+            route["geometry"]
+        )
+
+        incidents = await get_tomtom_incidents(
+            client=client,
+            min_lon=bbox[0],
+            min_lat=bbox[1],
+            max_lon=bbox[2],
+            max_lat=bbox[3],
+        )
+
+        parsed_incidents = [
+            parse_tomtom_incident(
+                incident
+            )
+            for incident in incidents
+        ]
+
+        risk_score = 0
+
+        for incident in parsed_incidents:
+
+            if incident["road_closed"]:
+                risk_score += 100
+
+            elif incident["severity"] >= 4:
+                risk_score += 60
+
+            elif incident["severity"] >= 3:
+                risk_score += 40
+
+            elif incident["severity"] >= 2:
+                risk_score += 20
+
+            else:
+                risk_score += 10
+
+        if risk_score >= 80:
+            status = "high_risk"
+            label = "Avoid if possible"
+
+        elif risk_score >= 30:
+            status = "caution"
+            label = "Use with caution"
+
+        else:
+            status = "lower_risk"
+            label = "Recommended"
+
+        return {
+            "route_id": route["id"],
+            "distance_km": route["distance_km"],
+            "estimated_minutes": route[
+                "estimated_minutes"
+            ],
+            "status": status,
+            "recommendation": label,
+            "risk_score": risk_score,
+            "incident_count": len(
+                parsed_incidents
+            ),
+            "incidents": parsed_incidents,
+        }
+
+    except Exception as error:
+
+        print(
+            f"Route {route.get('id')} "
+            f"verification error: {error}"
+        )
+
+        return {
+            "route_id": route.get("id"),
+            "distance_km": route.get(
+                "distance_km"
+            ),
+            "estimated_minutes": route.get(
+                "estimated_minutes"
+            ),
+            "status": "verification_failed",
+            "recommendation": (
+                "Live verification unavailable"
+            ),
+            "risk_score": None,
+            "incident_count": 0,
+            "incidents": [],
+        }
+    
 class SOSContact(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str = Field(min_length=10, max_length=15)
@@ -402,6 +687,8 @@ async def send_textbee_sms(
             status_code=502,
             detail="Could not connect to TextBee.",
         )
+
+
 @app.post("/api/test-textbee")
 async def test_textbee():
     result = await send_textbee_sms(
@@ -502,6 +789,7 @@ async def send_sos(request: SOSRequest):
         "failed_count": len(failed),
         "results": results,
     } 
+
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
 
@@ -604,7 +892,7 @@ async def get_route(request: RouteRequest):
                         f"{start['lon']},{start['lat']};"
                         f"{end['lon']},{end['lat']}",
                         params={
-                            "overview": "full",
+                            "overview": "simplified",
                             "geometries": "geojson",
                             "steps": "false",
                             "alternatives": "2",
@@ -618,7 +906,7 @@ async def get_route(request: RouteRequest):
                         },
                         timeout=httpx.Timeout(
                             connect=10.0,
-                            read=30.0,
+                            read=12.0,
                             write=10.0,
                             pool=10.0,
                         ),
@@ -781,80 +1069,204 @@ def plan_trip_legacy():
 class RouteVerificationRequest(BaseModel):
     start_location: str = Field(min_length=2, max_length=200)
     destination: str = Field(min_length=2, max_length=200)
-
+    routes: list[dict[str, Any]] = Field(
+        min_length=1,
+        max_length=5,
+    )
 class ClaimClassificationRequest(BaseModel):
     claim: str = Field(min_length=5, max_length=1000)
 
 
 
 @app.post("/api/verify-route")
-def verify_route(request: RouteVerificationRequest):
-    return {
-        "success": True,
-        "agent": "Route Verification Agent",
-        "overall_status": "unverified",
-        "journey": {
-            "start": request.start_location,
-            "destination": request.destination,
-        },
-        "checks": [
-            {
-                "name": "Official emergency resources",
-                "status": "official_sources_available",
-                "details": (
-                    "Official government emergency resources are listed "
-                    "below. They have not assessed this particular route."
-                ),
-            },
-            {
-                "name": "Recent incidents along this route",
-                "status": "not_checked",
-                "details": (
-                    "No live incident feed or official route-specific "
-                    "incident data is connected."
-                ),
-            },
-            {
-                "name": "Route safety assessment",
-                "status": "unverified",
-                "details": (
-                    "Distance and estimated driving time do not prove "
-                    "that a route is safe."
-                ),
-            },
-        ],
-        "sources": [
-            {
-                "title": "Emergency Response Support System (112)",
-                "url": "https://112.gov.in/",
-                "claim": (
-                    "India's official emergency response system provides "
-                    "emergency assistance through 112."
-                ),
-                "source_type": "Official Government of India",
-                "status": "official_source_reviewed",
-            },
-            {
-                "title": "Women Helpline (181)",
-                "url": "https://wcd.gov.in/women/help",
-                "claim": (
-                    "The Women Helpline provides support and connects "
-                    "women with relevant emergency and support services."
-                ),
-                "source_type": (
-                    "Official Ministry of Women and Child Development"
-                ),
-                "status": "official_source_reviewed",
-            },
-        ],
-        "limitations": [
-            "These resources are general emergency resources, not "
-            "route-specific safety findings.",
-            "Live incidents and local safety conditions have not been checked.",
-            "No police or emergency service has been contacted.",
-        ],
-    }
+async def verify_route(
+    request: RouteVerificationRequest,
+):
 
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0)
+        ) as client:
+
+            verification_results = await asyncio.gather(
+                *[
+                    verify_single_route(
+                        client,
+                        route,
+                    )
+                    for route in request.routes
+                ]
+            )
+
+        successful_results = [
+            result
+            for result in verification_results
+            if result["status"] != "verification_failed"
+        ]
+
+        if not successful_results:
+
+            overall_status = "verification_unavailable"
+            recommended_route = None
+
+        else:
+
+            recommended = min(
+                successful_results,
+                key=lambda result: (
+                    result["risk_score"]
+                    if result["risk_score"] is not None
+                    else float("inf")
+                ),
+            )
+
+            recommended_route = recommended["route_id"]
+
+            if recommended["risk_score"] >= 80:
+                overall_status = "high_risk"
+
+            elif recommended["risk_score"] >= 30:
+                overall_status = "caution"
+
+            else:
+                overall_status = "verified"
+
+        return {
+            "success": True,
+
+            "agent": "Route Verification Agent",
+
+            "overall_status": overall_status,
+
+            "journey": {
+                "start": request.start_location,
+                "destination": request.destination,
+            },
+
+            "recommended_route_id": recommended_route,
+
+            "live_data": {
+                "provider": "TomTom Traffic API",
+                "status": "live",
+                "description": (
+                    "Current traffic incidents were "
+                    "checked for each generated route."
+                ),
+            },
+
+            "routes": verification_results,
+
+            "checks": [
+                {
+                    "name": "Official emergency resources",
+                    "status": "official_sources_available",
+                    "details": (
+                        "Official government emergency "
+                        "resources are available for "
+                        "emergency assistance."
+                    ),
+                },
+                {
+                    "name": "Recent incidents along this route",
+                    "status": "live_checked",
+                    "details": (
+                        "Current traffic incidents were "
+                        "checked using the TomTom Traffic API."
+                    ),
+                },
+                {
+                    "name": "Route safety assessment",
+                    "status": overall_status,
+                    "details": (
+                        "Route risk is based on currently "
+                        "reported traffic incidents. "
+                        "This does not guarantee personal safety."
+                    ),
+                },
+            ],
+
+            "sources": [
+                {
+                    "title": "TomTom Traffic Incidents",
+                    "url": (
+                        "https://docs.tomtom.com/"
+                        "traffic-api/"
+                        "documentation/"
+                        "tomtom-orbis-maps/"
+                        "v2/traffic-incidents/"
+                        "incident-details"
+                    ),
+                    "claim": (
+                        "Live traffic incident information "
+                        "was checked for the generated routes."
+                    ),
+                    "source_type": "Traffic Data Provider",
+                    "status": "live_data_checked",
+                },
+                {
+                    "title": (
+                        "Emergency Response "
+                        "Support System (112)"
+                    ),
+                    "url": "https://112.gov.in/",
+                    "claim": (
+                        "India's official emergency response "
+                        "system provides emergency assistance "
+                        "through 112."
+                    ),
+                    "source_type": (
+                        "Official Government of India"
+                    ),
+                    "status": "official_source_reviewed",
+                },
+                {
+                    "title": "Women Helpline (181)",
+                    "url": (
+                        "https://wcd.gov.in/women/help"
+                    ),
+                    "claim": (
+                        "The Women Helpline provides support "
+                        "and connects women with relevant "
+                        "emergency and support services."
+                    ),
+                    "source_type": (
+                        "Official Ministry of Women "
+                        "and Child Development"
+                    ),
+                    "status": "official_source_reviewed",
+                },
+            ],
+
+            "limitations": [
+                (
+                    "Traffic incident data reflects reported "
+                    "incidents and may not capture every "
+                    "real-world event."
+                ),
+                (
+                    "A lower traffic incident risk does not "
+                    "guarantee personal safety."
+                ),
+                (
+                    "The system does not contact police or "
+                    "emergency services automatically."
+                ),
+            ],
+        }
+
+    except Exception as error:
+
+        print(
+            f"Route verification error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not complete live route verification."
+            ),
+        )
+    
 @app.post("/api/assess-risk")
 def assess_route_risk(request: RouteVerificationRequest):
     return {
@@ -1290,3 +1702,83 @@ async def stop_live_tracking(tracking_id: str):
         "success": True,
         "message": "Live tracking stopped.",
     }
+
+@app.get("/api/test-tomtom")
+async def test_tomtom():
+    api_key = os.getenv("TOMTOM_API_KEY")
+
+    if not api_key:
+        return {
+            "success": False,
+            "message": "TOMTOM_API_KEY is not loaded."
+        }
+
+    return {
+        "success": True,
+        "message": "TomTom API key is loaded successfully."
+    }
+@app.get("/api/test-tomtom-incidents")
+async def test_tomtom_incidents():
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0)
+        ) as client:
+
+            incidents = await get_tomtom_incidents(
+                client=client,
+                min_lon=77.18,
+                min_lat=28.60,
+                max_lon=77.25,
+                max_lat=28.66,
+            )
+
+        return {
+            "success": True,
+            "incident_count": len(incidents),
+            "incidents": incidents,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print(
+            f"Unexpected TomTom test error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unexpected TomTom test error.",
+        )
+
+@app.get("/api/test-tomtom-incidents")
+async def test_tomtom_incidents():
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0)
+        ) as client:
+            incidents = await get_tomtom_incidents(
+                client=client,
+                min_lon=77.18,
+                min_lat=28.60,
+                max_lon=77.25,
+                max_lat=28.66,
+            )
+
+        return {
+            "success": True,
+            "incident_count": len(incidents),
+            "incidents": incidents,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print(f"Unexpected TomTom test error: {error}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unexpected TomTom test error.",
+        )

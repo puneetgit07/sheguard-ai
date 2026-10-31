@@ -32,19 +32,56 @@ type RouteResult = {
   attribution: string;
 };
 
+type VerificationIncident = {
+  id: string | number | null;
+  category: string;
+  severity: number;
+  description: string;
+  road: string;
+  delay_seconds: number;
+  road_closed: boolean;
+  start_time: string | null;
+  end_time: string | null;
+  last_report_time: string | null;
+};
+
+type VerificationRoute = {
+  route_id: number;
+  distance_km: number;
+  estimated_minutes: number;
+  status: string;
+  recommendation: string;
+  risk_score: number | null;
+  incident_count: number;
+  incidents: VerificationIncident[];
+};
+
 type VerificationResult = {
   success: boolean;
   agent: string;
   overall_status: string;
+
   journey: {
     start: string;
     destination: string;
   };
+
+  recommended_route_id: number | null;
+
+  live_data: {
+    provider: string;
+    status: string;
+    description: string;
+  };
+
+  routes: VerificationRoute[];
+
   checks: {
     name: string;
     status: string;
     details: string;
   }[];
+
   sources: {
     title: string;
     url: string;
@@ -52,6 +89,7 @@ type VerificationResult = {
     source_type: string;
     status: string;
   }[];
+
   limitations: string[];
 };
 type RiskFinding = {
@@ -254,17 +292,25 @@ async function verifyRoute() {
 
   setVerifying(true);
   setVerification(null);
-  setMessage("Checking route verification information...");
+  setMessage("Checking live incidents on all routes...");
 
   try {
     const response = await fetch(
       "https://sheguard-ai-sedv.onrender.com/api/verify-route",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           start_location: routeResult.start.label,
           destination: routeResult.destination.label,
+          routes: routeResult.routes.map((route) => ({
+            id: route.id,
+            distance_km: route.distance_km,
+            estimated_minutes: route.estimated_minutes,
+            geometry: route.geometry,
+          })),
         }),
       }
     );
@@ -280,7 +326,7 @@ async function verifyRoute() {
     }
 
     setVerification(data as VerificationResult);
-    setMessage("Verification checks loaded.");
+    setMessage("Live route verification completed.");
   } catch (error) {
     setMessage(
       error instanceof Error
@@ -627,21 +673,169 @@ const selectedRoute =
       {verification.overall_status}
     </p>
 
+    <p>
+      <strong>Live data:</strong>{" "}
+      {verification.live_data.provider}
+    </p>
+
+    <p className="notice">
+      {verification.live_data.description}
+    </p>
+
+    {verification.recommended_route_id !== null && (
+      <div className="agent">
+        <div>
+          <strong>
+            Recommended Route: Route{" "}
+            {verification.recommended_route_id}
+          </strong>
+
+          <p>
+            The Verification Agent selected this route
+            based on the currently reported traffic incidents.
+          </p>
+        </div>
+      </div>
+    )}
+
+    <h4>Live Route Verification</h4>
+
+    <div className="route-options">
+      {verification.routes.map((route) => {
+        const isRecommended =
+          route.route_id === verification.recommended_route_id;
+
+        const statusClass =
+          route.status === "high_risk"
+            ? "finding-high-risk"
+            : route.status === "caution"
+              ? "finding-caution"
+              : route.status === "lower_risk"
+                ? "finding-lower-risk"
+                : "";
+
+        return (
+          <div
+            key={route.route_id}
+            className={`agent finding-card ${statusClass}`}
+          >
+            <p>
+              <strong>
+                Route {route.route_id}
+              </strong>
+
+              {isRecommended && (
+                <span className="classification-badge verified-evidence">
+                  Recommended
+                </span>
+              )}
+            </p>
+
+            <p>
+              <strong>Status:</strong>{" "}
+              {route.status}
+            </p>
+
+            <p>
+              <strong>Recommendation:</strong>{" "}
+              {route.recommendation}
+            </p>
+
+            <p>
+              <strong>Risk score:</strong>{" "}
+              {route.risk_score ?? "Unavailable"}
+            </p>
+
+            <p>
+              <strong>Live incidents:</strong>{" "}
+              {route.incident_count}
+            </p>
+
+            <p>
+              <strong>Distance:</strong>{" "}
+              {route.distance_km} km
+            </p>
+
+            <p>
+              <strong>Estimated time:</strong>{" "}
+              {route.estimated_minutes} min
+            </p>
+
+            {route.incidents.length > 0 && (
+              <>
+                <h4>Reported Incidents</h4>
+
+                {route.incidents.map((incident, index) => (
+                  <div
+                    className="finding-card"
+                    key={`${incident.id ?? "incident"}-${index}`}
+                  >
+                    <p>
+                      <strong>
+                        {incident.description}
+                      </strong>
+                    </p>
+
+                    <p>
+                      <strong>Road:</strong>{" "}
+                      {incident.road}
+                    </p>
+
+                    <p>
+                      <strong>Severity:</strong>{" "}
+                      {incident.severity}
+                    </p>
+
+                    <p>
+                      <strong>Delay:</strong>{" "}
+                      {incident.delay_seconds} seconds
+                    </p>
+
+                    {incident.road_closed && (
+                      <p>
+                        <strong>⚠️ Road closure reported</strong>
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {route.incidents.length === 0 && (
+              <p>
+                No current traffic incidents were reported
+                in the checked route area.
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+
+    <h4>Verification Checks</h4>
+
     {verification.checks.map((check) => (
       <div className="agent" key={check.name}>
         <div>
           <strong>{check.name}</strong>
+
           <p>
-            <strong>Status:</strong> {check.status}
+            <strong>Status:</strong>{" "}
+            {check.status}
           </p>
+
           <p>{check.details}</p>
         </div>
       </div>
     ))}
+
     <h4>Official Reference Sources</h4>
 
     {verification.sources?.map((source, index) => (
-      <div className="source-card" key={index}>
+      <div
+        className="source-card"
+        key={index}
+      >
         <h4>
           <a
             href={source.url}
@@ -655,15 +849,19 @@ const selectedRoute =
         <p>{source.claim}</p>
 
         <p>
-          <strong>Source type:</strong> {source.source_type}
+          <strong>Source type:</strong>{" "}
+          {source.source_type}
         </p>
 
         <p>
-          <strong>Status:</strong> {source.status}
+          <strong>Status:</strong>{" "}
+          {source.status}
         </p>
       </div>
     ))}
+
     <h4>Limitations</h4>
+
     <ul>
       {verification.limitations.map((item) => (
         <li key={item}>{item}</li>
