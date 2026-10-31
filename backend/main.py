@@ -472,39 +472,74 @@ def parse_tomtom_incident(
         )
 
         if description:
-            event_names.append(description)
+            event_names.append(
+                description
+            )
+
+    # TomTom returns magnitudeOfDelay
+    # as text such as:
+    # major, moderate, minor, undefined.
+    magnitude = str(
+        properties.get(
+            "magnitudeOfDelay",
+            "undefined",
+        )
+    ).lower()
+
+    severity_map = {
+        "major": 4,
+        "moderate": 3,
+        "minor": 2,
+        "undefined": 1,
+    }
+
+    severity = severity_map.get(
+        magnitude,
+        1,
+    )
 
     return {
-        "id": properties.get("id"),
+        "id": properties.get(
+            "id"
+        ),
+
         "category": properties.get(
             "iconCategory",
             "unknown",
         ),
-        "severity": properties.get(
-            "magnitudeOfDelay",
-            0,
-        ),
+
+        "severity": severity,
+
         "description": (
             ", ".join(event_names)
             if event_names
             else "Live traffic incident reported."
         ),
+
         "road": (
             properties.get("from")
             or properties.get("to")
             or "Unknown road"
         ),
+
         "delay_seconds": properties.get(
             "delayInSeconds",
             0,
         ),
-        "road_closed": False,
+
+        "road_closed": properties.get(
+            "roadClosed",
+            False,
+        ),
+
         "start_time": properties.get(
             "startTime"
         ),
+
         "end_time": properties.get(
             "endTime"
         ),
+
         "last_report_time": properties.get(
             "lastReportTime"
         ),
@@ -568,9 +603,7 @@ async def verify_single_route(
         return {
             "route_id": route["id"],
             "distance_km": route["distance_km"],
-            "estimated_minutes": route[
-                "estimated_minutes"
-            ],
+            "estimated_minutes": route["estimated_minutes"],
             "status": status,
             "recommendation": label,
             "risk_score": risk_score,
@@ -602,8 +635,7 @@ async def verify_single_route(
             "risk_score": None,
             "incident_count": 0,
             "incidents": [],
-        }
-    
+        }    
 class SOSContact(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str = Field(min_length=10, max_length=15)
@@ -1752,8 +1784,6 @@ async def test_tomtom_incidents():
             detail="Unexpected TomTom test error.",
         )
 
-@app.get("/api/test-tomtom-incidents")
-async def test_tomtom_incidents():
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0)
