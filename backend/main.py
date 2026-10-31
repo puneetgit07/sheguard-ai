@@ -895,7 +895,7 @@ async def get_route(request: RouteRequest):
                             "overview": "simplified",
                             "geometries": "geojson",
                             "steps": "false",
-                            "alternatives": "2",
+                            "alternatives": "4",
                         },
                         headers={
                             "User-Agent": (
