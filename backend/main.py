@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import os
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -371,48 +372,134 @@ async def get_tomtom_incidents(
         ),
     }
 
-    params = {
-        "apiVersion": 2,
-        "bbox": (
-            f"{min_lon},{min_lat},"
-            f"{max_lon},{max_lat}"
-        ),
-        "timeValidity": "present",
-    }
+    # ---------------------------------------------------------
+    # TomTom allows a maximum bbox area of 10,000 km².
+    # Long routes can have a much larger bounding box, so
+    # divide the requested area into smaller tiles.
+    # ---------------------------------------------------------
 
-    try:
-        response = await client.get(
-            url,
-            params=params,
-            headers=headers,
-            timeout=httpx.Timeout(
-                connect=5.0,
-                read=10.0,
-                write=5.0,
-                pool=5.0,
-            ),
+    center_lat = (min_lat + max_lat) / 2
+
+    km_per_lat = 111.0
+    km_per_lon = 111.0 * max(
+        0.2,
+        math.cos(math.radians(center_lat)),
+    )
+
+    width_km = (max_lon - min_lon) * km_per_lon
+    height_km = (max_lat - min_lat) * km_per_lat
+
+    # Keep each tile comfortably below TomTom's 10,000 km² limit.
+    target_tile_km = 70.0
+
+    columns = max(
+        1,
+        math.ceil(width_km / target_tile_km),
+    )
+
+    rows = max(
+        1,
+        math.ceil(height_km / target_tile_km),
+    )
+
+    # Avoid an excessive number of API requests.
+    columns = min(columns, 8)
+    rows = min(rows, 8)
+
+    lon_step = (max_lon - min_lon) / columns
+    lat_step = (max_lat - min_lat) / rows
+
+    all_incidents: list[dict[str, Any]] = []
+
+    for row in range(rows):
+        for column in range(columns):
+
+            tile_min_lon = min_lon + column * lon_step
+            tile_max_lon = min_lon + (column + 1) * lon_step
+
+            tile_min_lat = min_lat + row * lat_step
+            tile_max_lat = min_lat + (row + 1) * lat_step
+
+            params = {
+                "apiVersion": 2,
+                "bbox": (
+                    f"{tile_min_lon},{tile_min_lat},"
+                    f"{tile_max_lon},{tile_max_lat}"
+                ),
+                "timeValidity": "present",
+            }
+
+            try:
+                response = await client.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=httpx.Timeout(
+                        connect=5.0,
+                        read=10.0,
+                        write=5.0,
+                        pool=5.0,
+                    ),
+                )
+
+                print(
+                    "TomTom incident tile:",
+                    row,
+                    column,
+                    response.status_code,
+                )
+
+                response.raise_for_status()
+
+                data = response.json()
+
+                incidents = data.get(
+                    "incidents",
+                    [],
+                )
+
+                all_incidents.extend(incidents)
+
+            except httpx.HTTPError as error:
+                print(
+                    f"TomTom tile error "
+                    f"({row},{column}): {error}"
+                )
+
+                # Continue checking the remaining tiles
+                # instead of failing the complete route.
+                continue
+
+    # ---------------------------------------------------------
+    # Remove duplicate incidents.
+    # The same incident can appear in neighboring tiles.
+    # ---------------------------------------------------------
+
+    unique_incidents: dict[str, dict[str, Any]] = {}
+
+    for incident in all_incidents:
+
+        properties = incident.get(
+            "properties",
+            {},
         )
 
-        print(
-            "TomTom incidents:",
-            response.status_code,
-            response.text[:500],
-        )
+        incident_id = properties.get("id")
 
-        response.raise_for_status()
+        if incident_id is not None:
+            unique_incidents[str(incident_id)] = incident
+        else:
+            # Keep incidents without an ID as well.
+            unique_incidents[
+                f"anonymous-{len(unique_incidents)}"
+            ] = incident
 
-        data = response.json()
+    print(
+        "TomTom total unique incidents:",
+        len(unique_incidents),
+    )
 
-        return data.get("incidents", [])
-
-    except httpx.HTTPError as error:
-        print(f"TomTom HTTP error: {error}")
-
-        raise HTTPException(
-            status_code=502,
-            detail="Could not fetch live traffic incidents.",
-        )
-
+    return list(unique_incidents.values())
 def get_route_bbox(
     geometry: dict[str, Any],
 ) -> tuple[float, float, float, float]:
