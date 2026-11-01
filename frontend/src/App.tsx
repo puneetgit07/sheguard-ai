@@ -162,7 +162,20 @@ type ClaimClassificationResult = {
   limitations: string[];
 };
 
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
 
+  if (hours === 0) {
+    return `${mins} min`;
+  }
+
+  if (mins === 0) {
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+
+  return `${hours} ${hours === 1 ? "hour" : "hours"} ${mins} min`;
+}
 export default function App() {
   const [startLocation, setStartLocation] = useState("");
   const [destination, setDestination] = useState("");
@@ -583,7 +596,7 @@ const selectedRoute =
         >
           <strong>Route {route.id}</strong>
           <span>{route.distance_km} km</span>
-          <span>{route.estimated_minutes} min estimated</span>
+          <span>{formatDuration(route.estimated_minutes)} estimated</span>
           <small>
             {selectedRouteId === route.id
               ? "Selected"
