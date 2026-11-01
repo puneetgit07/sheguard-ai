@@ -1347,3 +1347,55 @@ footer {
   }
 
 }
+.floating-sos-button {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 12px 18px;
+
+  border: none;
+  border-radius: 999px;
+
+  background: #c92355;
+  color: white;
+
+  font-size: 15px;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.floating-sos-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.floating-sos-button:active {
+  transform: scale(0.96);
+}
+
+.floating-sos-button span {
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 600px) {
+  .floating-sos-button {
+    top: 16px;
+    right: 16px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+}

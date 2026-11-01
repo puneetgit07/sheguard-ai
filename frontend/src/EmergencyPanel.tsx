@@ -801,6 +801,7 @@ setError("");
         {!sosActive &&
           countdown === null && (
             <button
+              id="main-sos-button"
               className="sos-demo-button"
               type="button"
               onClick={prepareSOS}

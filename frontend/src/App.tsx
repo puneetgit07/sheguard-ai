@@ -485,6 +485,16 @@ const selectedRoute =
 
   return (
     <main className="app">
+      <button
+        className="floating-sos-button"
+        onClick={() => {
+          document.getElementById("main-sos-button")?.click();
+        }}
+        aria-label="Activate SOS"
+      >
+        🚨
+        <span>SOS</span>
+      </button>
       <header className="topbar">
         <div className="brand">SHEGUARD <span>AI</span></div>
         <div className="demo">AGENTIC AI PROTOTYPE</div>
