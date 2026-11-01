@@ -50,7 +50,13 @@ export default function EmergencyPanel({
     useState(false);
 
   const [error, setError] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
 
+  const videoRef =
+  useRef<HTMLVideoElement | null>(null);
+
+  const cameraStreamRef =
+  useRef<MediaStream | null>(null);
   // Stores browser GPS watch ID so we can stop tracking later.
   const watchIdRef = useRef<number | null>(null);
 
@@ -77,7 +83,12 @@ const activatingRef = useRef(false);
       console.error("Could not load trusted contacts.");
     }
   }, []);
-
+  useEffect(() => {
+  if (cameraOpen && videoRef.current) {
+    videoRef.current.srcObject =
+      cameraStreamRef.current;
+  }
+}, [cameraOpen]);
   // Save contacts.
   useEffect(() => {
     localStorage.setItem(
@@ -88,14 +99,22 @@ const activatingRef = useRef(false);
 
   // Stop GPS watcher when component unmounts.
   useEffect(() => {
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(
-          watchIdRef.current
-        );
-      }
-    };
-  }, []);
+  return () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(
+        watchIdRef.current
+      );
+    }
+
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current
+        .getTracks()
+        .forEach((track) => track.stop());
+
+      cameraStreamRef.current = null;
+    }
+  };
+}, []);
 
   // 5-second countdown.
   useEffect(() => {
@@ -397,10 +416,14 @@ async function activateSOS() {
       data.tracking_id
     );
 
-    // 6. Activate SOS
+        // 6. Activate SOS
     setSosActive(true);
 
-    // 7. Automatically send SMS
+    // 7. Open camera preview
+    // Camera failure will NOT stop the SOS workflow.
+    await startCamera();
+
+    // 8. Automatically send SMS
     const smsResult =
       await sendSOSAlerts(
         currentLocation,
@@ -473,7 +496,7 @@ async function activateSOS() {
 
   async function cancelSOS() {
     setCountdown(null);
-
+    stopCamera();
     stopLocationWatcher();
 
     await stopBackendTracking();
@@ -485,7 +508,61 @@ setTrackingUrl(null);
 trackingUrlRef.current = null;
 setError("");
   }
+async function startCamera() {
+  try {
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      throw new Error(
+        "Camera is not supported by this browser."
+      );
+    }
 
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+
+    cameraStreamRef.current = stream;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+
+    setCameraOpen(true);
+
+  } catch (cameraError) {
+    console.error(
+      "Camera access error:",
+      cameraError
+    );
+
+    // Camera failure should NOT stop SOS.
+    setCameraOpen(false);
+
+    setError(
+      "Camera access was unavailable. SOS will continue without camera."
+    );
+  }
+}
+
+function stopCamera() {
+  if (cameraStreamRef.current) {
+    cameraStreamRef.current
+      .getTracks()
+      .forEach((track) => track.stop());
+
+    cameraStreamRef.current = null;
+  }
+
+  if (videoRef.current) {
+    videoRef.current.srcObject = null;
+  }
+
+  setCameraOpen(false);
+}
   function prepareSOS() {
     setError("");
 
@@ -833,7 +910,39 @@ setError("");
           </div>
         )}
       </div>
+        {/* MINI CAMERA WINDOW */}
 
+{cameraOpen && (
+  <div className="sos-camera-window">
+    <div className="sos-camera-header">
+      <strong>🚨 SOS CAMERA</strong>
+
+      <button
+        type="button"
+        className="close-camera-button"
+        onClick={stopCamera}
+        aria-label="Close camera"
+      >
+        ✕
+      </button>
+    </div>
+
+    <div className="sos-camera-preview">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+      />
+    </div>
+
+    <div className="sos-camera-footer">
+      <span>
+        🔴 Live camera preview
+      </span>
+    </div>
+  </div>
+)}
       {/* ACTIVE SOS */}
 
       {sosActive && (

@@ -631,3 +631,170 @@
   display: block;
   margin-top: 10px;
 }
+/* =========================================
+   SOS CAMERA MINI WINDOW
+   ========================================= */
+
+.sos-camera-window {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 10000;
+
+  width: 330px;
+
+  overflow: hidden;
+
+  border: 1px solid #efcfde;
+  border-radius: 18px;
+
+  background: #241923;
+
+  box-shadow:
+    0 18px 45px rgba(50, 20, 35, 0.28),
+    0 4px 12px rgba(50, 20, 35, 0.12);
+
+  animation: camera-window-enter 250ms ease both;
+}
+
+.sos-camera-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 11px 12px;
+
+  background: linear-gradient(
+    135deg,
+    #c7467c,
+    #a52d64
+  );
+
+  color: white;
+}
+
+.sos-camera-header strong {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.close-camera-button {
+  display: grid;
+  place-items: center;
+
+  width: 30px;
+  height: 30px;
+
+  padding: 0;
+
+  border: none;
+  border-radius: 50%;
+
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+
+  font-size: 1rem;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  transition:
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.close-camera-button:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.08);
+}
+
+.close-camera-button:active {
+  transform: scale(0.94);
+}
+
+.sos-camera-preview {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+
+  background: #120d11;
+  overflow: hidden;
+}
+
+.sos-camera-preview video {
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+
+  background: #120d11;
+}
+
+.sos-camera-footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  padding: 9px 12px;
+
+  background: #2d2028;
+
+  color: #f5dce8;
+
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.sos-camera-footer span::first-letter {
+  color: #ef476f;
+}
+
+@keyframes camera-window-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Mobile camera window */
+
+@media (max-width: 600px) {
+  .sos-camera-window {
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+
+    width: auto;
+
+    border-radius: 16px;
+  }
+
+  .sos-camera-preview {
+    aspect-ratio: 16 / 10;
+  }
+
+  .sos-camera-header {
+    padding: 10px 11px;
+  }
+
+  .sos-camera-footer {
+    padding: 8px 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sos-camera-window {
+    animation: none;
+  }
+
+  .close-camera-button {
+    transition: none;
+  }
+}
