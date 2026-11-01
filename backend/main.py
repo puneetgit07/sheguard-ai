@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 import re
 from html import unescape
 from urllib.parse import urlparse
+from urllib.parse import quote
 from safety.safety_data import UP_SAFETY_DATA
 from safety.safety_score import (
     build_rate_table,
@@ -207,193 +208,165 @@ async def geocode(
             detail="Location cannot be empty.",
         )
 
-    for attempt in range(2):
+    api_key = os.getenv("TOMTOM_API_KEY")
 
-        try:
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="TOMTOM_API_KEY is not configured.",
+        )
 
-            response = await client.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={
-                    "q": address,
-                    "format": "jsonv2",
-                    "limit": 1,
-                    "countrycodes": "in",
-                },
-                headers={
-                    "User-Agent": (
-                        "SHEGUARD-AI/1.0 "
-                        "(hackathon safety application)"
-                    ),
-                    "Accept": "application/json",
-                },
-                timeout=httpx.Timeout(
-                    connect=5.0,
-                    read=10.0,
-                    write=5.0,
-                    pool=5.0,
+    url = (
+        "https://api.tomtom.com/search/2/geocode/"
+        f"{quote(address)}.json"
+    )
+
+    try:
+        response = await client.get(
+            url,
+            params={
+                "key": api_key,
+                "countrySet": "IN",
+                "limit": 1,
+            },
+            headers={
+                "Accept": "application/json",
+            },
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=10.0,
+                write=5.0,
+                pool=5.0,
+            ),
+        )
+
+        print(
+            f"TomTom geocode: "
+            f"status={response.status_code}, "
+            f"address={address}"
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+        results = data.get("results", [])
+
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not find this location: {address}",
+            )
+
+        result = results[0]
+        position = result.get("position", {})
+
+        latitude = position.get("lat")
+        longitude = position.get("lon")
+
+        if latitude is None or longitude is None:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Location service returned no coordinates "
+                    f"for: {address}"
                 ),
             )
 
-            print(
-                f"Nominatim attempt {attempt + 1}: "
-                f"status={response.status_code}, "
-                f"address={address}"
-            )
+        result_address = result.get("address", {})
 
-            # -----------------------------------
-            # Rate limit
-            # -----------------------------------
-
-            if response.status_code == 429:
-
-                print(
-                    f"Nominatim rate limited: {address}"
+        return {
+            "available": True,
+            "lat": float(latitude),
+            "lon": float(longitude),
+            "label": (
+                result_address.get(
+                    "freeformAddress"
                 )
+                or address
+            ),
+            "provider": "TomTom Geocoding API",
+        }
 
-                # Do not crash the whole route API.
-                return {
-                    "available": False,
-                    "lat": None,
-                    "lon": None,
-                    "label": address,
-                    "reason": "rate_limited",
-                }
+    except HTTPException:
+        raise
 
-            # -----------------------------------
-            # Temporary server errors
-            # -----------------------------------
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Location search timed out. "
+                "Please try again."
+            ),
+        )
 
-            if response.status_code in (
-                500,
-                502,
-                503,
-                504,
-            ):
+    except httpx.HTTPStatusError as error:
 
-                if attempt == 0:
+        print(
+            "TomTom geocode HTTP error:",
+            error.response.status_code,
+            error.response.text[:500],
+        )
 
-                    await asyncio.sleep(2)
-
-                    continue
-
-                return {
-                    "available": False,
-                    "lat": None,
-                    "lon": None,
-                    "label": address,
-                    "reason": "service_unavailable",
-                }
-
-            response.raise_for_status()
-
-            results = response.json()
-
-            # -----------------------------------
-            # Location not found
-            # -----------------------------------
-
-            if not results:
-
-                raise HTTPException(
-                    status_code=404,
-                    detail=(
-                        f"Could not find this location: "
-                        f"{address}"
-                    ),
-                )
-
-            result = results[0]
-
-            return {
-                "available": True,
-                "lat": float(result["lat"]),
-                "lon": float(result["lon"]),
-                "label": result.get(
-                    "display_name",
-                    address,
+        if error.response.status_code == 401:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "TomTom API key was rejected."
                 ),
-            }
-
-        # ---------------------------------------
-        # Timeout
-        # ---------------------------------------
-
-        except httpx.TimeoutException as error:
-
-            print(
-                f"Nominatim timeout on attempt "
-                f"{attempt + 1}: {error}"
             )
 
-            if attempt == 0:
-
-                await asyncio.sleep(2)
-
-                continue
-
-            return {
-                "available": False,
-                "lat": None,
-                "lon": None,
-                "label": address,
-                "reason": "timeout",
-            }
-
-        # ---------------------------------------
-        # HTTP errors
-        # ---------------------------------------
-
-        except httpx.HTTPError as error:
-
-            print(
-                f"Nominatim HTTP error on attempt "
-                f"{attempt + 1}: {error}"
+        if error.response.status_code == 403:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "TomTom Geocoding API access is "
+                    "not enabled for this API key."
+                ),
             )
 
-            if attempt == 0:
-
-                await asyncio.sleep(2)
-
-                continue
-
-            return {
-                "available": False,
-                "lat": None,
-                "lon": None,
-                "label": address,
-                "reason": "http_error",
-            }
-
-        # ---------------------------------------
-        # Unexpected errors
-        # ---------------------------------------
-
-        except Exception as error:
-
-            print(
-                f"Unexpected geocoding error: "
-                f"{error}"
+        if error.response.status_code == 429:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Location search is temporarily "
+                    "rate-limited. Please try again."
+                ),
             )
 
-            return {
-                "available": False,
-                "lat": None,
-                "lon": None,
-                "label": address,
-                "reason": "unexpected_error",
-            }
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "TomTom location service is temporarily "
+                "unavailable."
+            ),
+        )
 
-    # -------------------------------------------
-    # Final fallback
-    # -------------------------------------------
+    except httpx.HTTPError as error:
 
-    return {
-        "available": False,
-        "lat": None,
-        "lon": None,
-        "label": address,
-        "reason": "geocoding_unavailable",
-    }
+        print(
+            f"TomTom geocode connection error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not connect to the location service."
+            ),
+        )
+
+    except Exception as error:
+
+        print(
+            f"Unexpected TomTom geocode error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "An unexpected location search error occurred."
+            ),
+        )
+    
 async def get_tomtom_incidents(
     client: httpx.AsyncClient,
     min_lon: float,
