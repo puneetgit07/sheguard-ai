@@ -98,61 +98,46 @@ def calculate_route_indicator(
     route_segments: list[dict],
     district_scores: dict[str, dict],
 ) -> dict:
-
     total_distance = 0.0
-
     weighted_score = 0.0
-
     available_distance = 0.0
 
-    matched_districts = []
+    # Keep one aggregated entry per district.
+    district_summary = {}
 
     for segment in route_segments:
+        distance = segment.get("distance_km", 0)
+        district = segment.get("district")
 
-        distance = segment.get(
-            "distance_km",
-            0,
-        )
+        if distance <= 0:
+            continue
 
-        district = segment.get(
-            "district"
-        )
+        total_distance += distance
 
         if not district:
             continue
 
-        district_data = district_scores.get(
-            district
-        )
+        district_data = district_scores.get(district)
 
         if not district_data:
             continue
 
-        score = district_data[
-            "risk_indicator"
-        ]
+        score = district_data["risk_indicator"]
 
-        total_distance += distance
-
-        weighted_score += (
-            distance * score
-        )
-
+        weighted_score += distance * score
         available_distance += distance
 
-        matched_districts.append(
-            {
+        if district not in district_summary:
+            district_summary[district] = {
                 "district": district,
-                "distance_km": distance,
+                "distance_km": 0.0,
                 "risk_indicator": score,
-                "risk_level": district_data[
-                    "risk_level"
-                ],
+                "risk_level": district_data["risk_level"],
             }
-        )
+
+        district_summary[district]["distance_km"] += distance
 
     if available_distance == 0:
-
         return {
             "available": False,
             "risk_indicator": None,
@@ -161,38 +146,35 @@ def calculate_route_indicator(
             "districts": [],
         }
 
-    route_score = (
-        weighted_score
-        / available_distance
-    )
+    route_score = weighted_score / available_distance
 
     coverage = (
-        available_distance
-        / total_distance
-        * 100
+        available_distance / total_distance * 100
         if total_distance > 0
         else 0
     )
 
     if route_score < 33.33:
         level = "lower"
-
     elif route_score < 66.67:
         level = "moderate"
-
     else:
         level = "higher"
 
+    districts = []
+
+    for district in district_summary.values():
+        districts.append({
+            "district": district["district"],
+            "distance_km": round(district["distance_km"], 2),
+            "risk_indicator": district["risk_indicator"],
+            "risk_level": district["risk_level"],
+        })
+
     return {
         "available": True,
-        "risk_indicator": round(
-            route_score,
-            2,
-        ),
+        "risk_indicator": round(route_score, 2),
         "risk_level": level,
-        "coverage_percent": round(
-            coverage,
-            2,
-        ),
-        "districts": matched_districts,
+        "coverage_percent": round(coverage, 2),
+        "districts": districts,
     }
