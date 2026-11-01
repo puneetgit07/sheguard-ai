@@ -283,8 +283,6 @@ def build_route_segments(
     if not district_points:
         return segments
 
-    # Map each route coordinate to the nearest
-    # reverse-geocoded district sample.
     for i in range(len(coordinates) - 1):
         start = coordinates[i]
         end = coordinates[i + 1]
@@ -299,7 +297,6 @@ def build_route_segments(
             lon2,
         )
 
-        # Find the closest sampled district point
         midpoint_lon = (lon1 + lon2) / 2
         midpoint_lat = (lat1 + lat2) / 2
 

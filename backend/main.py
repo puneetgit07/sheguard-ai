@@ -1329,6 +1329,35 @@ async def verify_route(
                 )
 
                 # -----------------------------------
+                # Add safety risk to every segment
+                # -----------------------------------
+
+                for segment in route_segments:
+
+                    district = segment.get("district")
+
+                    district_data = (
+                        SAFETY_DISTRICT_SCORES.get(district)
+                        if district
+                        else None
+                    )
+
+                    if district_data:
+
+                        segment["risk_indicator"] = (
+                            district_data["risk_indicator"]
+                        )
+
+                        segment["risk_level"] = (
+                            district_data["risk_level"]
+                        )
+
+                    else:
+
+                        segment["risk_indicator"] = None
+                        segment["risk_level"] = "insufficient_data"
+
+                # -----------------------------------
                 # 3. Calculate weighted route risk
                 # -----------------------------------
 
@@ -1364,6 +1393,7 @@ async def verify_route(
                         "districts": safety_result[
                             "districts"
                         ],
+                        "segments": route_segments,
 
                         "data_type": (
                             "Historical reported-crime "
