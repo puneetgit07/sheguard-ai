@@ -32,56 +32,47 @@ type RouteResult = {
   attribution: string;
 };
 
-type VerificationIncident = {
-  id: string | number | null;
-  category: string;
-  severity: number;
-  description: string;
-  road: string;
-  delay_seconds: number;
-  road_closed: boolean;
-  start_time: string | null;
-  end_time: string | null;
-  last_report_time: string | null;
+type VerificationDistrict = {
+  district: string;
+  distance_km: number;
+  risk_indicator: number;
+  risk_level: string;
 };
+
 
 type VerificationRoute = {
   route_id: number;
   distance_km: number;
   estimated_minutes: number;
-  status: string;
-  recommendation: string;
-  risk_score: number | null;
-  incident_count: number;
-  incidents: VerificationIncident[];
+  risk_indicator: number | null;
+  risk_level: string;
+  coverage_percent: number;
+  districts: VerificationDistrict[];
+  data_type: string;
+  source_year: number;
+  traffic_used: boolean;
 };
 
 type VerificationResult = {
   success: boolean;
   agent: string;
   overall_status: string;
-
   journey: {
     start: string;
     destination: string;
   };
-
   recommended_route_id: number | null;
-
   live_data: {
     provider: string;
     status: string;
     description: string;
   };
-
   routes: VerificationRoute[];
-
   checks: {
     name: string;
     status: string;
     details: string;
   }[];
-
   sources: {
     title: string;
     url: string;
@@ -89,9 +80,9 @@ type VerificationResult = {
     source_type: string;
     status: string;
   }[];
-
   limitations: string[];
 };
+
 type RiskFinding = {
   label: string;
   claim: string;
@@ -292,7 +283,7 @@ async function verifyRoute() {
 
   setVerifying(true);
   setVerification(null);
-  setMessage("Checking live incidents on all routes...");
+  setMessage("Assessing historical safety indicators on all routes...");
 
   try {
     const response = await fetch(
@@ -326,7 +317,7 @@ async function verifyRoute() {
     }
 
     setVerification(data as VerificationResult);
-    setMessage("Live route verification completed.");
+    setMessage("Historical route safety assessment completed.");
   } catch (error) {
     setMessage(
       error instanceof Error
@@ -614,7 +605,9 @@ const selectedRoute =
   onClick={verifyRoute}
   disabled={verifying || !routeResult}
 >
-  {verifying ? "Checking..." : "Verify Route Information"}
+  {verifying
+  ? "Assessing Safety..."
+  : "Assess Route Safety"}
 </button>
 <button
   onClick={assessRouteRisk}
@@ -667,27 +660,28 @@ const selectedRoute =
 {verification && (
   <div className="verification-panel">
 
-    {/* Verification Header */}
     <div className="verification-header">
       <div>
         <p className="verification-eyebrow">
-          LIVE SAFETY CHECK
+          HISTORICAL SAFETY ASSESSMENT
         </p>
 
         <h3>{verification.agent}</h3>
 
         <p className="verification-description">
-          {verification.live_data.description}
+          Each route is assessed using available historical
+          reported-crime indicators mapped to the geographic
+          areas crossed by the route.
         </p>
       </div>
 
       <div
         className={`overall-status ${
-          verification.overall_status === "verified"
+          verification.overall_status === "lower"
             ? "status-safe"
-            : verification.overall_status === "caution"
+            : verification.overall_status === "moderate"
             ? "status-caution"
-            : verification.overall_status === "high_risk"
+            : verification.overall_status === "higher"
             ? "status-danger"
             : "status-unavailable"
         }`}
@@ -700,17 +694,19 @@ const selectedRoute =
       </div>
     </div>
 
-    {/* Live Data */}
+    {/* Assessment Summary */}
+
     <div className="live-data-banner">
+
       <div>
-        <span>Live Data Provider</span>
+        <span>Safety Data</span>
         <strong>
-          {verification.live_data.provider}
+          Historical Reported Crime
         </strong>
       </div>
 
       <div>
-        <span>Routes Checked</span>
+        <span>Routes Assessed</span>
         <strong>
           {verification.routes.length}
         </strong>
@@ -724,50 +720,50 @@ const selectedRoute =
             : "Not available"}
         </strong>
       </div>
+
     </div>
 
-    {/* Route Verification */}
+    {/* Route Safety Cards */}
+
     <div className="verification-section">
+
       <div className="section-heading">
-        <h4>Live Route Verification</h4>
+        <h4>Route Safety Summary</h4>
 
         <p>
-          Each available route is checked against
-          currently reported traffic incidents.
+          The indicator is based on historical reported-crime
+          data and is not a guarantee of present-day safety.
         </p>
       </div>
 
       <div className="verification-route-grid">
 
         {verification.routes.map((route) => {
+
           const isRecommended =
             route.route_id ===
             verification.recommended_route_id;
 
-          const isFailed =
-            route.status === "verification_failed";
+          const riskLevel =
+            route.risk_level ?? "insufficient_data";
 
-          const statusText = isFailed
-            ? "Verification unavailable"
-            : route.status === "high_risk"
-            ? "High Risk"
-            : route.status === "caution"
-            ? "Use with Caution"
-            : route.status === "lower_risk"
-            ? "Lower Risk"
-            : route.status
-                .replace(/_/g, " ")
-                .replace(/\b\w/g, (letter) =>
-                  letter.toUpperCase()
-                );
+          const riskLabel =
+            riskLevel === "lower"
+              ? "Lower Historical Indicator"
+              : riskLevel === "moderate"
+              ? "Moderate Historical Indicator"
+              : riskLevel === "higher"
+              ? "Higher Historical Indicator"
+              : "Insufficient Data";
 
-          const statusClass = isFailed
-            ? "route-status unavailable"
-            : route.status === "high_risk"
-            ? "route-status high-risk"
-            : route.status === "caution"
-            ? "route-status caution"
-            : "route-status lower-risk";
+          const riskClass =
+            riskLevel === "lower"
+              ? "route-status lower-risk"
+              : riskLevel === "moderate"
+              ? "route-status caution"
+              : riskLevel === "higher"
+              ? "route-status high-risk"
+              : "route-status unavailable";
 
           return (
             <div
@@ -780,10 +776,13 @@ const selectedRoute =
             >
 
               {/* Route Header */}
+
               <div className="verification-route-top">
 
                 <div>
+
                   <div className="route-title-row">
+
                     <h5>
                       Route {route.route_id}
                     </h5>
@@ -793,309 +792,175 @@ const selectedRoute =
                         ✓ Recommended
                       </span>
                     )}
+
                   </div>
 
                   <p className="route-subtitle">
-                    Live traffic verification
+                    Historical safety assessment
                   </p>
+
                 </div>
 
-                <span className={statusClass}>
-                  {statusText}
+                <span className={riskClass}>
+                  {riskLabel}
                 </span>
 
               </div>
 
               {/* Route Stats */}
+
               <div className="route-stat-grid">
 
                 <div className="route-stat">
-                  <span>Risk Score</span>
+
+                  <span>
+                    Risk Indicator
+                  </span>
 
                   <strong
                     className={
-                      route.risk_score !== null
+                      route.risk_indicator !== null
                         ? "risk-score-visible"
                         : "risk-score-unavailable"
                     }
                   >
-                    {route.risk_score !== null
-                      ? route.risk_score
+                    {route.risk_indicator !== null
+                      ? `${route.risk_indicator}/100`
                       : "N/A"}
                   </strong>
+
                 </div>
 
                 <div className="route-stat">
-                  <span>Live Incidents</span>
+
+                  <span>
+                    Data Coverage
+                  </span>
 
                   <strong>
-                    {route.incident_count}
+                    {route.coverage_percent}%
                   </strong>
+
                 </div>
 
                 <div className="route-stat">
-                  <span>Distance</span>
+
+                  <span>
+                    Distance
+                  </span>
 
                   <strong>
                     {route.distance_km} km
                   </strong>
+
                 </div>
 
                 <div className="route-stat">
-                  <span>Estimated Time</span>
+
+                  <span>
+                    Estimated Time
+                  </span>
 
                   <strong>
                     {route.estimated_minutes} min
                   </strong>
+
                 </div>
 
               </div>
 
-              {/* Recommendation */}
-              <div className="route-recommendation-box">
+              {/* District Details */}
 
-                <span>
-                  AGENT RECOMMENDATION
-                </span>
+              {(route.districts ?? []).length > 0 && (
+                <div className="route-recommendation-box">
 
-                <p>
-                  {route.recommendation}
-                </p>
+                  <span>
+                    AREAS USED IN ASSESSMENT
+                  </span>
 
-              </div>
+                  {route.districts.map((district) => (
 
-              {/* Failed Verification */}
-              {isFailed && (
-                <div className="verification-unavailable">
+                    <div
+                      key={`${route.route_id}-${district.district}`}
+                      className="agent"
+                    >
 
-                  <strong>
-                    ⚠️ Live verification unavailable
-                  </strong>
+                      <div>
+                        <strong>
+                          {district.district}
+                        </strong>
 
-                  <p>
-                    The live traffic service could not
-                    verify this route at the moment.
-                    Please try the verification again.
-                  </p>
+                        <p>
+                          {district.distance_km} km ·
+                          Risk indicator:{" "}
+                          {district.risk_indicator}/100 ·{" "}
+                          {district.risk_level}
+                        </p>
+                      </div>
+
+                    </div>
+
+                  ))}
 
                 </div>
               )}
 
-              {/* Incidents */}
-              {!isFailed &&
-                route.incidents.length > 0 && (
-                  <div className="incident-section">
+              {/* Data Information */}
 
-                    <h6>
-                      ⚠️ Live Traffic Incidents
-                    </h6>
+              <div className="verification-unavailable">
 
-                    {route.incidents.map(
-                      (incident, index) => (
-                        <div
-                          className="incident-card"
-                          key={`${
-                            incident.id ?? "incident"
-                          }-${index}`}
-                        >
+                <strong>
+                  Data basis
+                </strong>
 
-                          <div className="incident-header">
+                <p>
+                  {route.data_type} · Source year:{" "}
+                  {route.source_year}
+                </p>
 
-                            <strong>
-                              {incident.description}
-                            </strong>
+                <p>
+                  Traffic conditions are not used in this
+                  women-safety assessment.
+                </p>
 
-                            {incident.road_closed && (
-                              <span className="road-closed-badge">
-                                ROAD CLOSED
-                              </span>
-                            )}
-
-                          </div>
-
-                          <p>
-                            <strong>Road:</strong>{" "}
-                            {incident.road}
-                          </p>
-
-                          <div className="incident-meta">
-
-                            <span>
-                              Severity:{" "}
-                              {incident.severity}
-                            </span>
-
-                            <span>
-                              Delay:{" "}
-                              {incident.delay_seconds}s
-                            </span>
-
-                          </div>
-
-                        </div>
-                      )
-                    )}
-
-                  </div>
-                )}
-
-              {/* No Incidents */}
-              {!isFailed &&
-                route.incidents.length === 0 && (
-                  <div className="no-incidents-box">
-                    <span>✓</span>
-
-                    <div>
-                      <strong>
-                        No current traffic incidents
-                      </strong>
-
-                      <p>
-                        No reported traffic incidents
-                        were found in the checked route
-                        area.
-                      </p>
-                    </div>
-                  </div>
-                )}
+              </div>
 
             </div>
           );
         })}
 
       </div>
-    </div>
-
-    {/* Verification Checks */}
-    <div className="verification-section">
-
-      <div className="section-heading">
-        <h4>Verification Checks</h4>
-
-        <p>
-          Data sources and checks used by the
-          Verification Agent.
-        </p>
-      </div>
-
-      <div className="verification-checks">
-
-        {verification.checks.map((check) => (
-
-          <div
-            className="verification-check-card"
-            key={check.name}
-          >
-
-            <div className="check-icon">
-              ✓
-            </div>
-
-            <div>
-              <h5>{check.name}</h5>
-
-              <span className="check-status">
-                {check.status
-                  .replace(/_/g, " ")
-                  .replace(/\b\w/g, (letter) =>
-                    letter.toUpperCase()
-                  )}
-              </span>
-
-              <p>
-                {check.details}
-              </p>
-            </div>
-
-          </div>
-
-        ))}
-
-      </div>
-
-    </div>
-
-    {/* Official Sources */}
-    <div className="verification-section">
-
-      <div className="section-heading">
-        <h4>Official Reference Sources</h4>
-
-        <p>
-          Reference sources used to support the
-          verification workflow.
-        </p>
-      </div>
-
-      <div className="source-grid">
-
-        {verification.sources?.map(
-          (source, index) => (
-
-            <div
-              className="source-card"
-              key={`${source.url}-${index}`}
-            >
-
-              <h5>
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {source.title}
-                </a>
-              </h5>
-
-              <p>
-                {source.claim}
-              </p>
-
-              <div className="source-meta">
-
-                <span>
-                  {source.source_type}
-                </span>
-
-                <span>
-                  {source.status
-                    .replace(/_/g, " ")
-                    .replace(/\b\w/g, (letter) =>
-                      letter.toUpperCase()
-                    )}
-                </span>
-
-              </div>
-
-            </div>
-
-          )
-        )}
-
-      </div>
 
     </div>
 
     {/* Limitations */}
+
     <div className="limitations-box">
 
-      <h4>Important Limitations</h4>
+      <h4>Important Safety Note</h4>
+
+      <p>
+        A higher or lower indicator represents historical
+        reported-crime patterns in the available data. It does
+        not mean that a route is absolutely unsafe or safe.
+      </p>
+
+      <p>
+        Traffic congestion, slow traffic, stationary traffic,
+        road closures, and similar traffic conditions are
+        intentionally excluded from the women-safety score.
+      </p>
 
       <ul>
-        {verification.limitations.map(
-          (item) => (
-            <li key={item}>
-              {item}
-            </li>
-          )
-        )}
+        {verification.limitations.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
       </ul>
 
     </div>
 
   </div>
 )}
-
       </>
     )}
     

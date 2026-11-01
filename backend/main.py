@@ -12,6 +12,23 @@ from pydantic import BaseModel, Field
 import re
 from html import unescape
 from urllib.parse import urlparse
+from safety.safety_data import UP_SAFETY_DATA
+from safety.safety_score import (
+    build_rate_table,
+    calculate_normalized_indicators,
+    calculate_route_indicator,
+)
+from safety.geographic import (
+    identify_route_districts,
+    build_route_segments,
+)
+SAFETY_RATE_TABLE = build_rate_table(
+    UP_SAFETY_DATA
+)
+
+SAFETY_DISTRICT_SCORES = calculate_normalized_indicators(
+    SAFETY_RATE_TABLE
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -139,6 +156,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:5175",
+        "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5175",
         "https://sheguard-ai-1.onrender.com",
@@ -650,53 +668,43 @@ async def verify_single_route(
         )
 
         parsed_incidents = [
-            parse_tomtom_incident(
-                incident
-            )
+            parse_tomtom_incident(incident)
             for incident in incidents
         ]
 
+        # Traffic conditions are NOT automatically treated
+        # as personal-safety risks.
+        #
+        # Heavy traffic, slow traffic, stationary traffic
+        # and queuing traffic do not automatically mean
+        # that a route is unsafe.
+        #
+        # Therefore, the current prototype keeps the
+        # personal-safety risk score at 0 while still
+        # reporting live traffic incidents.
+
         risk_score = 0
 
-        for incident in parsed_incidents:
-
-            if incident["road_closed"]:
-                risk_score += 100
-
-            elif incident["severity"] >= 4:
-                risk_score += 60
-
-            elif incident["severity"] >= 3:
-                risk_score += 40
-
-            elif incident["severity"] >= 2:
-                risk_score += 20
-
-            else:
-                risk_score += 10
-
-        if risk_score >= 80:
-            status = "high_risk"
-            label = "Avoid if possible"
-
-        elif risk_score >= 30:
-            status = "caution"
-            label = "Use with caution"
-
-        else:
+        if risk_score == 0:
             status = "lower_risk"
-            label = "Recommended"
+            recommendation = (
+                "No personal-safety risk signal was identified "
+                "from the available verification data."
+            )
+        else:
+            status = "caution"
+            recommendation = (
+                "Some safety signals require additional review."
+            )
 
         return {
             "route_id": route["id"],
             "distance_km": route["distance_km"],
             "estimated_minutes": route["estimated_minutes"],
             "status": status,
-            "recommendation": label,
+            "recommendation": recommendation,
             "risk_score": risk_score,
-            "incident_count": len(
-                parsed_incidents
-            ),
+            "incident_count": len(parsed_incidents),
             "incidents": parsed_incidents,
         }
 
@@ -717,12 +725,12 @@ async def verify_single_route(
             ),
             "status": "verification_failed",
             "recommendation": (
-                "Live verification unavailable"
+                "Live verification unavailable."
             ),
             "risk_score": None,
             "incident_count": 0,
             "incidents": [],
-        }    
+        }
 class SOSContact(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str = Field(min_length=10, max_length=15)
@@ -1186,15 +1194,67 @@ def plan_trip_legacy():
     }
 
 class RouteVerificationRequest(BaseModel):
-    start_location: str = Field(min_length=2, max_length=200)
-    destination: str = Field(min_length=2, max_length=200)
+    start_location: str = Field(
+        min_length=2,
+        max_length=200,
+    )
+
+    destination: str = Field(
+        min_length=2,
+        max_length=200,
+    )
+
     routes: list[dict[str, Any]] = Field(
         min_length=1,
         max_length=5,
     )
-class ClaimClassificationRequest(BaseModel):
-    claim: str = Field(min_length=5, max_length=1000)
 
+
+
+class ClaimClassificationRequest(BaseModel):
+    claim: str = Field(
+        min_length=5,
+        max_length=1000,
+    )
+
+
+def evaluate_route_safety(
+    route: dict[str, Any],
+) -> dict[str, Any]:
+
+    """
+    SHEGUARD AI personal-safety evaluation.
+
+    Important:
+    Traffic conditions are intentionally NOT used here.
+
+    The current prototype does not have a verified,
+    route-specific women-safety/crime dataset connected.
+
+    Therefore we do not invent a numerical safety score.
+    """
+
+    return {
+        "route_id": route.get("id"),
+        "distance_km": route.get("distance_km"),
+        "estimated_minutes": route.get(
+            "estimated_minutes"
+        ),
+
+        # No fake safety score.
+        "risk_score": None,
+
+        "status": "insufficient_safety_data",
+
+        "recommendation": (
+            "Route-specific personal-safety risk "
+            "could not be verified with the available data."
+        ),
+
+        # Traffic incidents are completely removed.
+        "incident_count": 0,
+        "incidents": [],
+    }
 
 
 @app.post("/api/verify-route")
@@ -1203,57 +1263,175 @@ async def verify_route(
 ):
 
     try:
+
+        route_results = []
+
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(20.0)
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=15.0,
+                write=5.0,
+                pool=5.0,
+            ),
+            headers={
+                "User-Agent": (
+                    "SHEGUARD-AI/1.0 "
+                    "(hackathon safety application)"
+                )
+            },
         ) as client:
 
-            verification_results = await asyncio.gather(
-                *[
-                    verify_single_route(
-                        client,
-                        route,
-                    )
-                    for route in request.routes
-                ]
-            )
+            for route in request.routes:
 
-        successful_results = [
-            result
-            for result in verification_results
-            if result["status"] != "verification_failed"
+                coordinates = route.get(
+                    "geometry",
+                    []
+                )
+
+                if not coordinates:
+
+                    route_results.append(
+                        {
+                            "route_id": route.get("id"),
+                            "risk_indicator": None,
+                            "risk_level": "insufficient_data",
+                            "coverage_percent": 0,
+                            "districts": [],
+                            "message": (
+                                "Route geometry is unavailable."
+                            ),
+                        }
+                    )
+
+                    continue
+
+                # -----------------------------------
+                # 1. Find districts along the route
+                # -----------------------------------
+
+                district_points = (
+                    await identify_route_districts(
+                        client=client,
+                        coordinates=coordinates,
+                        safety_data=UP_SAFETY_DATA,
+                    )
+                )
+
+                # -----------------------------------
+                # 2. Convert points into segments
+                # -----------------------------------
+
+                route_segments = build_route_segments(
+                    coordinates=coordinates,
+                    district_points=district_points,
+                )
+
+                # -----------------------------------
+                # 3. Calculate weighted route risk
+                # -----------------------------------
+
+                safety_result = calculate_route_indicator(
+                    route_segments=route_segments,
+                    district_scores=SAFETY_DISTRICT_SCORES,
+                )
+
+                route_results.append(
+                    {
+                        "route_id": route.get("id"),
+
+                        "distance_km": route.get(
+                            "distance_km"
+                        ),
+
+                        "estimated_minutes": route.get(
+                            "estimated_minutes"
+                        ),
+
+                        "risk_indicator": safety_result[
+                            "risk_indicator"
+                        ],
+
+                        "risk_level": safety_result[
+                            "risk_level"
+                        ],
+
+                        "coverage_percent": safety_result[
+                            "coverage_percent"
+                        ],
+
+                        "districts": safety_result[
+                            "districts"
+                        ],
+
+                        "data_type": (
+                            "Historical reported-crime "
+                            "indicator"
+                        ),
+
+                        "source_year": 2015,
+
+                        "traffic_used": False,
+                    }
+                )
+
+        # -----------------------------------
+        # 4. Select recommended route
+        # -----------------------------------
+
+        valid_routes = [
+            route
+            for route in route_results
+            if route.get("risk_indicator") is not None
         ]
 
-        if not successful_results:
+        recommended_route_id = None
 
-            overall_status = "verification_unavailable"
-            recommended_route = None
+        if valid_routes:
+
+            recommended_route = min(
+                valid_routes,
+                key=lambda route: route[
+                    "risk_indicator"
+                ],
+            )
+
+            recommended_route_id = (
+                recommended_route["route_id"]
+            )
+
+        # -----------------------------------
+        # 5. Overall status
+        # -----------------------------------
+
+        if not valid_routes:
+
+            overall_status = (
+                "insufficient_data"
+            )
 
         else:
 
-            recommended = min(
-                successful_results,
-                key=lambda result: (
-                    result["risk_score"]
-                    if result["risk_score"] is not None
-                    else float("inf")
-                ),
+            highest_risk = max(
+                route["risk_indicator"]
+                for route in valid_routes
             )
 
-            recommended_route = recommended["route_id"]
+            if highest_risk < 33.33:
+                overall_status = "lower"
 
-            if recommended["risk_score"] >= 80:
-                overall_status = "high_risk"
-
-            elif recommended["risk_score"] >= 30:
-                overall_status = "caution"
+            elif highest_risk < 66.67:
+                overall_status = "moderate"
 
             else:
-                overall_status = "verified"
+                overall_status = "higher"
 
         return {
             "success": True,
 
-            "agent": "Route Verification Agent",
+            "agent": (
+                "SHEGUARD AI Personal Safety "
+                "Route Assessment Agent"
+            ),
 
             "overall_status": overall_status,
 
@@ -1262,113 +1440,73 @@ async def verify_route(
                 "destination": request.destination,
             },
 
-            "recommended_route_id": recommended_route,
+            "recommended_route_id": (
+                recommended_route_id
+            ),
 
             "live_data": {
-                "provider": "TomTom Traffic API",
-                "status": "live",
+                "provider": "None",
+                "status": "not_used",
                 "description": (
-                    "Current traffic incidents were "
-                    "checked for each generated route."
+                    "Traffic conditions are not "
+                    "used for women-safety scoring."
                 ),
             },
 
-            "routes": verification_results,
+            "routes": route_results,
 
             "checks": [
                 {
-                    "name": "Official emergency resources",
-                    "status": "official_sources_available",
+                    "name": (
+                        "Historical women-safety "
+                        "indicator"
+                    ),
+                    "status": (
+                        "available"
+                        if valid_routes
+                        else "insufficient_data"
+                    ),
                     "details": (
-                        "Official government emergency "
-                        "resources are available for "
-                        "emergency assistance."
+                        "Route segments are mapped "
+                        "to available district-level "
+                        "historical data."
                     ),
                 },
                 {
-                    "name": "Recent incidents along this route",
-                    "status": "live_checked",
+                    "name": "Traffic data",
+                    "status": "excluded",
                     "details": (
-                        "Current traffic incidents were "
-                        "checked using the TomTom Traffic API."
-                    ),
-                },
-                {
-                    "name": "Route safety assessment",
-                    "status": overall_status,
-                    "details": (
-                        "Route risk is based on currently "
-                        "reported traffic incidents. "
-                        "This does not guarantee personal safety."
+                        "Traffic conditions are "
+                        "intentionally excluded from "
+                        "personal-safety assessment."
                     ),
                 },
             ],
 
-            "sources": [
-                {
-                    "title": "TomTom Traffic Incidents",
-                    "url": (
-                        "https://docs.tomtom.com/"
-                        "traffic-api/"
-                        "documentation/"
-                        "tomtom-orbis-maps/"
-                        "v2/traffic-incidents/"
-                        "incident-details"
-                    ),
-                    "claim": (
-                        "Live traffic incident information "
-                        "was checked for the generated routes."
-                    ),
-                    "source_type": "Traffic Data Provider",
-                    "status": "live_data_checked",
-                },
-                {
-                    "title": (
-                        "Emergency Response "
-                        "Support System (112)"
-                    ),
-                    "url": "https://112.gov.in/",
-                    "claim": (
-                        "India's official emergency response "
-                        "system provides emergency assistance "
-                        "through 112."
-                    ),
-                    "source_type": (
-                        "Official Government of India"
-                    ),
-                    "status": "official_source_reviewed",
-                },
-                {
-                    "title": "Women Helpline (181)",
-                    "url": (
-                        "https://wcd.gov.in/women/help"
-                    ),
-                    "claim": (
-                        "The Women Helpline provides support "
-                        "and connects women with relevant "
-                        "emergency and support services."
-                    ),
-                    "source_type": (
-                        "Official Ministry of Women "
-                        "and Child Development"
-                    ),
-                    "status": "official_source_reviewed",
-                },
-            ],
+            "sources": OFFICIAL_REFERENCE_SOURCES,
 
             "limitations": [
                 (
-                    "Traffic incident data reflects reported "
-                    "incidents and may not capture every "
-                    "real-world event."
+                    "The indicator is based on "
+                    "historical reported-crime data."
                 ),
                 (
-                    "A lower traffic incident risk does not "
-                    "guarantee personal safety."
+                    "Historical reported crime does "
+                    "not guarantee present-day safety."
                 ),
                 (
-                    "The system does not contact police or "
-                    "emergency services automatically."
+                    "District boundaries and "
+                    "geocoding may not perfectly "
+                    "match police jurisdictions."
+                ),
+                (
+                    "Segments without matching "
+                    "district data are excluded from "
+                    "the weighted score."
+                ),
+                (
+                    "Traffic conditions are not "
+                    "treated as women-safety risk."
                 ),
             ],
         }
@@ -1376,13 +1514,14 @@ async def verify_route(
     except Exception as error:
 
         print(
-            f"Route verification error: {error}"
+            f"Route safety verification error: {error}"
         )
 
         raise HTTPException(
-            status_code=502,
+            status_code=500,
             detail=(
-                "Could not complete live route verification."
+                "Personal-safety route verification "
+                "could not be completed."
             ),
         )
     
@@ -1862,6 +2001,7 @@ async def test_tomtom_incidents():
         raise
 
     except Exception as error:
+
         print(
             f"Unexpected TomTom test error: {error}"
         )
@@ -1871,31 +2011,14 @@ async def test_tomtom_incidents():
             detail="Unexpected TomTom test error.",
         )
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0)
-        ) as client:
-            incidents = await get_tomtom_incidents(
-                client=client,
-                min_lon=77.18,
-                min_lat=28.60,
-                max_lon=77.25,
-                max_lat=28.66,
-            )
+@app.get("/api/test-safety-data")
+async def test_safety_data():
 
-        return {
-            "success": True,
-            "incident_count": len(incidents),
-            "incidents": incidents,
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as error:
-        print(f"Unexpected TomTom test error: {error}")
-
-        raise HTTPException(
-            status_code=500,
-            detail="Unexpected TomTom test error.",
-        )
+    return {
+        "success": True,
+        "coverage": "Uttar Pradesh",
+        "district_count": len(
+            SAFETY_DISTRICT_SCORES
+        ),
+        "districts": SAFETY_DISTRICT_SCORES,
+    }
