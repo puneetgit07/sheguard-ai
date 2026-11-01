@@ -39,7 +39,20 @@ type VerificationDistrict = {
   risk_level: string;
 };
 
-
+type VerificationSegment = {
+  start: {
+    latitude: number;
+    longitude: number;
+  };
+  end: {
+    latitude: number;
+    longitude: number;
+  };
+  distance_km: number;
+  district: string | null;
+  risk_indicator: number | null;
+  risk_level: string;
+};
 type VerificationRoute = {
   route_id: number;
   distance_km: number;
@@ -48,6 +61,7 @@ type VerificationRoute = {
   risk_level: string;
   coverage_percent: number;
   districts: VerificationDistrict[];
+  segments: VerificationSegment[];
   data_type: string;
   source_year: number;
   traffic_used: boolean;
@@ -589,8 +603,33 @@ const selectedRoute =
             )?.geometry.coordinates ??
             routeResult.routes[0].geometry.coordinates
           }
+
           startLabel={routeResult.start.label}
-          destinationLabel={routeResult.destination.label}
+
+          destinationLabel={
+            routeResult.destination.label
+          }
+
+          riskIndicator={
+            verification?.routes.find(
+              (route) =>
+                route.route_id === selectedRouteId
+            )?.risk_indicator
+          }
+
+          riskLevel={
+            verification?.routes.find(
+              (route) =>
+                route.route_id === selectedRouteId
+            )?.risk_level
+          }
+
+          segments={
+            verification?.routes.find(
+              (route) =>
+                route.route_id === selectedRouteId
+            )?.segments ?? []
+          }
         />
 
         <p>
