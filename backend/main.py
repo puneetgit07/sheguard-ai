@@ -208,7 +208,9 @@ async def geocode(
         )
 
     for attempt in range(2):
+
         try:
+
             response = await client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={
@@ -238,45 +240,72 @@ async def geocode(
                 f"address={address}"
             )
 
+            # -----------------------------------
+            # Rate limit
+            # -----------------------------------
+
             if response.status_code == 429:
-                if attempt == 0:
-                    await asyncio.sleep(1)
-                    continue
 
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Location service rate limit reached. "
-                        "Please try again in a moment."
-                    ),
+                print(
+                    f"Nominatim rate limited: {address}"
                 )
 
-            if response.status_code in (500, 502, 503, 504):
+                # Do not crash the whole route API.
+                return {
+                    "available": False,
+                    "lat": None,
+                    "lon": None,
+                    "label": address,
+                    "reason": "rate_limited",
+                }
+
+            # -----------------------------------
+            # Temporary server errors
+            # -----------------------------------
+
+            if response.status_code in (
+                500,
+                502,
+                503,
+                504,
+            ):
+
                 if attempt == 0:
-                    await asyncio.sleep(1)
+
+                    await asyncio.sleep(2)
+
                     continue
 
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Location service is temporarily unavailable. "
-                        "Please try again."
-                    ),
-                )
+                return {
+                    "available": False,
+                    "lat": None,
+                    "lon": None,
+                    "label": address,
+                    "reason": "service_unavailable",
+                }
 
             response.raise_for_status()
 
             results = response.json()
 
+            # -----------------------------------
+            # Location not found
+            # -----------------------------------
+
             if not results:
+
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Could not find this location: {address}",
+                    detail=(
+                        f"Could not find this location: "
+                        f"{address}"
+                    ),
                 )
 
             result = results[0]
 
             return {
+                "available": True,
                 "lat": float(result["lat"]),
                 "lon": float(result["lon"]),
                 "label": result.get(
@@ -285,62 +314,86 @@ async def geocode(
                 ),
             }
 
-        except HTTPException:
-            raise
+        # ---------------------------------------
+        # Timeout
+        # ---------------------------------------
 
         except httpx.TimeoutException as error:
+
             print(
                 f"Nominatim timeout on attempt "
                 f"{attempt + 1}: {error}"
             )
 
             if attempt == 0:
-                await asyncio.sleep(1)
+
+                await asyncio.sleep(2)
+
                 continue
 
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Location service timed out. "
-                    "Please try again."
-                ),
-            )
+            return {
+                "available": False,
+                "lat": None,
+                "lon": None,
+                "label": address,
+                "reason": "timeout",
+            }
+
+        # ---------------------------------------
+        # HTTP errors
+        # ---------------------------------------
 
         except httpx.HTTPError as error:
+
             print(
                 f"Nominatim HTTP error on attempt "
                 f"{attempt + 1}: {error}"
             )
 
             if attempt == 0:
-                await asyncio.sleep(1)
+
+                await asyncio.sleep(2)
+
                 continue
 
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Location service could not be reached. "
-                    "Please try again."
-                ),
-            )
+            return {
+                "available": False,
+                "lat": None,
+                "lon": None,
+                "label": address,
+                "reason": "http_error",
+            }
+
+        # ---------------------------------------
+        # Unexpected errors
+        # ---------------------------------------
 
         except Exception as error:
+
             print(
-                f"Unexpected geocoding error: {error}"
+                f"Unexpected geocoding error: "
+                f"{error}"
             )
 
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "An unexpected location service error "
-                    "occurred."
-                ),
-            )
+            return {
+                "available": False,
+                "lat": None,
+                "lon": None,
+                "label": address,
+                "reason": "unexpected_error",
+            }
 
-    raise HTTPException(
-        status_code=502,
-        detail="Location service is temporarily unavailable.",
-    )
+    # -------------------------------------------
+    # Final fallback
+    # -------------------------------------------
+
+    return {
+        "available": False,
+        "lat": None,
+        "lon": None,
+        "label": address,
+        "reason": "geocoding_unavailable",
+    }
 async def get_tomtom_incidents(
     client: httpx.AsyncClient,
     min_lon: float,
@@ -992,6 +1045,27 @@ async def get_route(request: RouteRequest):
                     request.start_location.strip(),
                 )
 
+                if not start.get("available", True):
+                    reason = start.get("reason")
+
+                    if reason == "rate_limited":
+                        raise HTTPException(
+                            status_code=503,
+                            detail=(
+                                "Location search is temporarily rate-limited. "
+                                "Please use your current GPS location or try "
+                                "again after a short while."
+                            ),
+                        )
+
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "Starting location could not be resolved right now. "
+                            "Please use your current GPS location or try again."
+                        ),
+                    )
+
             # Resolve destination
             if has_pair(
                 request.dest_lat,
@@ -1008,6 +1082,25 @@ async def get_route(request: RouteRequest):
                     request.destination.strip(),
                 )
 
+                if not end.get("available", True):
+                    reason = end.get("reason")
+
+                    if reason == "rate_limited":
+                        raise HTTPException(
+                            status_code=503,
+                            detail=(
+                                "Destination search is temporarily rate-limited. "
+                                "Please try again after a short while."
+                            ),
+                        )
+
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "Destination could not be resolved right now. "
+                            "Please check the destination and try again."
+                        ),
+                    )
             # OSRM route request with retry
             route_data = None
 
