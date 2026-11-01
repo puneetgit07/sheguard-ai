@@ -275,22 +275,22 @@ def build_route_segments(
     coordinates: list[list[float]],
     district_points: list[dict],
 ) -> list[dict]:
-
     segments = []
 
-    if len(district_points) < 2:
+    if len(coordinates) < 2:
         return segments
 
-    for i in range(len(district_points) - 1):
+    if not district_points:
+        return segments
 
-        current = district_points[i]
-        next_point = district_points[i + 1]
+    # Map each route coordinate to the nearest
+    # reverse-geocoded district sample.
+    for i in range(len(coordinates) - 1):
+        start = coordinates[i]
+        end = coordinates[i + 1]
 
-        lon1 = current["longitude"]
-        lat1 = current["latitude"]
-
-        lon2 = next_point["longitude"]
-        lat2 = next_point["latitude"]
+        lon1, lat1 = start
+        lon2, lat2 = end
 
         distance = haversine_km(
             lat1,
@@ -299,27 +299,33 @@ def build_route_segments(
             lon2,
         )
 
-        district = (
-            current.get("matched_district")
-            or next_point.get("matched_district")
+        # Find the closest sampled district point
+        midpoint_lon = (lon1 + lon2) / 2
+        midpoint_lat = (lat1 + lat2) / 2
+
+        closest_point = min(
+            district_points,
+            key=lambda point: haversine_km(
+                midpoint_lat,
+                midpoint_lon,
+                point["latitude"],
+                point["longitude"],
+            ),
         )
 
-        segments.append(
-            {
-                "start": {
-                    "latitude": lat1,
-                    "longitude": lon1,
-                },
-                "end": {
-                    "latitude": lat2,
-                    "longitude": lon2,
-                },
-                "distance_km": round(
-                    distance,
-                    2,
-                ),
-                "district": district,
-            }
-        )
+        district = closest_point.get("matched_district")
+
+        segments.append({
+            "start": {
+                "latitude": lat1,
+                "longitude": lon1,
+            },
+            "end": {
+                "latitude": lat2,
+                "longitude": lon2,
+            },
+            "distance_km": round(distance, 4),
+            "district": district,
+        })
 
     return segments
