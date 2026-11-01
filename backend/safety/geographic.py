@@ -1,5 +1,5 @@
 import re
-
+import asyncio
 
 DISTRICT_ALIASES = {
     "gautam buddh nagar": "Gautambudh Nagar",
@@ -74,14 +74,11 @@ import httpx
 
 
 async def reverse_geocode_point(
-    client: httpx.AsyncClient,
-    latitude: float,
-    longitude: float,
-) -> dict:
-
-    url = (
-        "https://nominatim.openstreetmap.org/reverse"
-    )
+    client,
+    latitude,
+    longitude,
+):
+    url = "https://nominatim.openstreetmap.org/reverse"
 
     params = {
         "lat": latitude,
@@ -91,14 +88,38 @@ async def reverse_geocode_point(
         "addressdetails": 1,
     }
 
-    response = await client.get(
-        url,
-        params=params,
-    )
+    # Nominatim public service:
+    # keep requests at <= 1 request/second
+    await asyncio.sleep(1.1)
 
-    response.raise_for_status()
+    try:
+        response = await client.get(
+            url,
+            params=params,
+            headers={
+                "User-Agent": (
+                    "SHEGUARD-AI/1.0 "
+                    "(hackathon safety application)"
+                )
+            },
+        )
 
-    return response.json()
+        if response.status_code == 429:
+            print(
+                "Nominatim rate limit reached."
+            )
+            return {}
+
+        response.raise_for_status()
+
+        return response.json()
+
+    except Exception as error:
+        print(
+            f"Nominatim request failed: {error}"
+        )
+
+        return {}
 def extract_district(
     geocode_result: dict,
 ) -> str | None:
