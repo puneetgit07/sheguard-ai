@@ -1283,10 +1283,12 @@ async def verify_route(
 
             for route in request.routes:
 
-                coordinates = route.get(
-                    "geometry",
-                    []
-                )
+                raw_geometry = route.get("geometry", [])
+
+                if isinstance(raw_geometry, dict):
+                    coordinates = raw_geometry.get("coordinates", [])
+                else:
+                    coordinates = raw_geometry
 
                 if not coordinates:
 
