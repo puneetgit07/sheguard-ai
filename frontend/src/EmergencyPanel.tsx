@@ -57,9 +57,8 @@ export default function EmergencyPanel({
   // Version 2: Automatic video sharing
   const [sharingConsent, setSharingConsent] = useState(false);
 
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-
-  const [videoShareStatus, setVideoShareStatus] = useState("");
+  const [, setIsUploadingVideo] = useState(false);
+  const [, setVideoShareStatus] = useState("");
   const [sosSmsStatus, setSosSmsStatus] = useState("");
   const [sosVideoStatus, setSosVideoStatus] = useState("");
   const [recordingTime, setRecordingTime] = useState(0);
