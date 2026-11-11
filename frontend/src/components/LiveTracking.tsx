@@ -19,7 +19,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
 });
-const BACKEND_URL = "https://sheguard-ai-sedv.onrender.com";
+const BACKEND_URL = "http://127.0.0.1:8000";
 
 interface TrackingData {
   success: boolean;

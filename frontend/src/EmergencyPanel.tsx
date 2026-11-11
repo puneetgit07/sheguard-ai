@@ -26,8 +26,7 @@ type LocationData = {
 };
 
 const STORAGE_KEY = "sheguard_trusted_contacts";
-const BACKEND_URL = "https://sheguard-ai-sedv.onrender.com";
-
+const BACKEND_URL = "http://127.0.0.1:8000";
 export default function EmergencyPanel({
   trip,
 }: EmergencyPanelProps) {
@@ -52,20 +51,40 @@ export default function EmergencyPanel({
   const [error, setError] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
 
-  const videoRef =
-  useRef<HTMLVideoElement | null>(null);
+  // Version 2: Camera recording
+  const [recordingConsent, setRecordingConsent] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  // Version 2: Automatic video sharing
+  const [sharingConsent, setSharingConsent] = useState(false);
 
-  const cameraStreamRef =
-  useRef<MediaStream | null>(null);
-  // Stores browser GPS watch ID so we can stop tracking later.
-  const watchIdRef = useRef<number | null>(null);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
 
-// Keeps the latest tracking URL immediately available
-// even before React state finishes updating.
-const trackingUrlRef = useRef<string | null>(null);
+  const [videoShareStatus, setVideoShareStatus] = useState("");
+  const [sosSmsStatus, setSosSmsStatus] = useState("");
+  const [sosVideoStatus, setSosVideoStatus] = useState("");
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
 
-// Prevents duplicate SOS activation.
-const activatingRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
+
+    const videoRef =
+    useRef<HTMLVideoElement | null>(null);
+
+    const cameraStreamRef =
+    useRef<MediaStream | null>(null);
+    // Stores browser GPS watch ID so we can stop tracking later.
+    const watchIdRef = useRef<number | null>(null);
+
+  // Keeps the latest tracking URL immediately available
+  // even before React state finishes updating.
+  const trackingUrlRef = useRef<string | null>(null);
+
+  // Prevents duplicate SOS activation.
+  const activatingRef = useRef(false);
+  const [recordedVideoBlob, setRecordedVideoBlob] =
+  useState<Blob | null>(null);
 
   // Load saved trusted contacts.
   useEffect(() => {
@@ -424,16 +443,34 @@ async function activateSOS() {
     await startCamera();
 
     // 8. Automatically send SMS
-    const smsResult =
-      await sendSOSAlerts(
-        currentLocation,
-        data.tracking_url
-      );
+   // 8. Send SMS separately.
+// SMS failure must NOT deactivate SOS or stop live tracking.
+try {
+  const smsResult = await sendSOSAlerts(
+    currentLocation,
+    data.tracking_url
+  );
 
-    console.log(
-      "SOS SMS result:",
-      smsResult
-    );
+  console.log("SOS SMS result:", smsResult);
+  if (data.success) {
+  setSosSmsStatus(
+    `✓ SOS SMS sent to ${data.sent_count} trusted contact(s).`
+  );
+} else {
+  setSosSmsStatus(
+    "⚠ SOS SMS could not be sent to trusted contacts."
+  );
+}
+  setError("");
+} catch (smsError) {
+  console.error("SOS SMS sending failed:", smsError);
+
+  setError(
+    smsError instanceof Error
+      ? `SOS is active, but SMS could not be sent: ${smsError.message}`
+      : "SOS is active, but SMS could not be sent."
+  );
+}
 
   } catch (activationError) {
 
@@ -493,30 +530,432 @@ async function activateSOS() {
       watchIdRef.current = null;
     }
   }
+async function cancelSOS() {
+  setCountdown(null);
 
-  async function cancelSOS() {
-    setCountdown(null);
-    stopCamera();
+  let finalVideoBlob: Blob | null = null;
+
+  try {
+    // 1. Recording ko properly stop karke final Blob wait karo
+    finalVideoBlob = await stopRecording();
+
+    // 2. Camera tracks immediately stop karo
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current
+        .getTracks()
+        .forEach((track) => track.stop());
+
+      cameraStreamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setCameraOpen(false);
+
+    // 3. GPS tracking immediately stop karo
     stopLocationWatcher();
 
+    // 4. Backend live tracking immediately stop karo
     await stopBackendTracking();
 
+    // 5. SOS UI immediately close karo
     setSosActive(false);
-setLocation(null);
-setTrackingId(null);
-setTrackingUrl(null);
-trackingUrlRef.current = null;
-setError("");
+    setLocation(null);
+    setTrackingId(null);
+    setTrackingUrl(null);
+    trackingUrlRef.current = null;
+    setError("");
+
+    // ------------------------------------------------
+    // 6. Video upload/share background me handle karo
+    // ------------------------------------------------
+
+    if (finalVideoBlob && finalVideoBlob.size > 0) {
+      setIsUploadingVideo(true);
+      setVideoShareStatus("Uploading SOS video...");
+      setSosVideoStatus("⏳ Uploading SOS video...");
+      try {
+        const formData = new FormData();
+
+        // Explicit WebM MIME type
+        const uploadBlob = new Blob(
+          [finalVideoBlob],
+          { type: "video/webm" }
+        );
+
+        formData.append(
+          "video",
+          uploadBlob,
+          "sos-video.webm"
+        );
+
+        const uploadResponse = await fetch(
+          `${BACKEND_URL}/api/upload-sos-video`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!uploadResponse.ok) {
+          let errorMessage = "SOS video upload failed.";
+
+          try {
+            const errorData =
+              await uploadResponse.json();
+
+            console.error(
+              "SOS video upload backend error:",
+              errorData
+            );
+
+            errorMessage =
+              errorData.detail ||
+              errorMessage;
+          } catch {
+            // Backend response JSON nahi tha
+          }
+
+          throw new Error(errorMessage);
+        }
+
+        const uploadData =
+          await uploadResponse.json();
+
+        console.log(
+          "SOS video upload response:",
+          uploadData
+        );
+        if (uploadData.success) {
+          setSosVideoStatus(
+            "✓ SOS video uploaded securely."
+          );
+        }
+        // 7. Agar sharing consent ON hai,
+        //    trusted contacts ko video link bhejo
+        if (
+          sharingConsent &&
+          uploadData.success &&
+          uploadData.signed_url
+        ) {
+          setVideoShareStatus(
+            "Video uploaded. Sharing with trusted contacts..."
+          );
+
+          const shareResponse = await fetch(
+            `${BACKEND_URL}/api/share-sos-video`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                signed_url: uploadData.signed_url,
+                contacts: contacts,
+                consent_given: sharingConsent,
+              }),
+            }
+          );
+
+          if (!shareResponse.ok) {
+            throw new Error(
+              "Video sharing request failed."
+            );
+          }
+
+          const shareData =
+            await shareResponse.json();
+
+          console.log(
+            "SOS video share response:",
+            shareData
+          );
+
+          if (shareData.success) {
+            setVideoShareStatus(
+              `Video link sent to ${shareData.sent_count} trusted contact(s).`
+            );
+            setSosVideoStatus(
+              `✓ Video link sent to ${shareData.sent_count} trusted contact(s).`
+            );
+          } else {
+            setVideoShareStatus(
+              "Video uploaded, but the sharing SMS could not be sent."
+            );
+          }
+        } else {
+          setVideoShareStatus(
+            "SOS video uploaded successfully. It was not shared because sharing consent was not enabled."
+          );
+        }
+      } catch (videoError) {
+        console.error(
+          "SOS video processing error:",
+          videoError
+        );
+
+        setVideoShareStatus(
+          "SOS ended, but video upload/sharing failed."
+        );
+      } finally {
+        setIsUploadingVideo(false);
+      }
+    } else {
+      setVideoShareStatus("");
+    }
+  } catch (error) {
+    console.error(
+      "Error while stopping SOS:",
+      error
+    );
+
+    // SOS ko kisi bhi condition me close karo
+    stopLocationWatcher();
+
+    try {
+      await stopBackendTracking();
+    } catch (trackingError) {
+      console.error(
+        "Backend tracking stop error:",
+        trackingError
+      );
+    }
+
+    setSosActive(false);
+    setLocation(null);
+    setTrackingId(null);
+    setTrackingUrl(null);
+    trackingUrlRef.current = null;
+    setError("");
   }
+}
+function startRecording(stream: MediaStream) {
+  try {
+    if (!("MediaRecorder" in window)) {
+      setError(
+        "Video recording is not supported by this browser. SOS will continue."
+      );
+      return;
+    }
+
+    recordedChunksRef.current = [];
+
+    let mimeType = "";
+
+    const supportedTypes = [
+  "video/webm;codecs=vp8",
+  "video/webm",
+];
+
+    for (const type of supportedTypes) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        mimeType = type;
+        break;
+      }
+    }
+
+    if (!mimeType) {
+      setError(
+        "Video recording format is not supported by this browser. SOS will continue."
+      );
+      return;
+    }
+
+    console.log("Recording MIME type:", mimeType);
+    console.log("Camera stream:", stream);
+    console.log("Video tracks:", stream.getVideoTracks());
+
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+    });
+
+    mediaRecorderRef.current = recorder;
+
+    recorder.ondataavailable = (event) => {
+      console.log(
+        "Recording data received:",
+        event.data.size,
+        "bytes"
+      );
+
+      if (event.data && event.data.size > 0) {
+        recordedChunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      console.log(
+        "Recorder stopped. Total chunks:",
+        recordedChunksRef.current.length
+      );
+
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
+      const videoBlob = new Blob(
+        recordedChunksRef.current,
+        {
+          type: recorder.mimeType || "video/webm",
+        }
+      );
+
+      console.log(
+        "Final video blob:",
+        videoBlob.size,
+        "bytes",
+        videoBlob.type
+      );
+
+      setRecordedVideoBlob(videoBlob);
+
+      if (videoBlob.size > 0) {
+        const videoUrl = URL.createObjectURL(videoBlob);
+
+        setRecordedVideoUrl((previousUrl) => {
+          if (previousUrl) {
+            URL.revokeObjectURL(previousUrl);
+          }
+
+          return videoUrl;
+        });
+      }
+
+      setIsRecording(false);
+      setRecordingTime(0);
+      mediaRecorderRef.current = null;
+    };
+
+    recorder.onerror = (event) => {
+      console.error("MediaRecorder error:", event);
+
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
+      setIsRecording(false);
+
+      setError(
+        "Video recording failed. SOS will continue."
+      );
+    };
+
+    recorder.start(1000);
+
+    console.log("MediaRecorder started:", recorder.state);
+
+    setRecordingTime(0);
+
+    if (recordingTimerRef.current !== null) {
+      window.clearInterval(recordingTimerRef.current);
+    }
+
+    recordingTimerRef.current = window.setInterval(() => {
+      setRecordingTime((previous) => previous + 1);
+    }, 1000);
+
+    setIsRecording(true);
+  } catch (recordingError) {
+    console.error(
+      "Recording start error:",
+      recordingError
+    );
+
+    if (recordingTimerRef.current !== null) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    setIsRecording(false);
+
+    setError(
+      "Could not start video recording. SOS will continue."
+    );
+  }
+}
+
+function stopRecording(): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const recorder = mediaRecorderRef.current;
+
+    if (!recorder || recorder.state === "inactive") {
+      setIsRecording(false);
+      resolve(recordedVideoBlob);
+      return;
+    }
+
+    const handleStop = () => {
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
+      const videoBlob = new Blob(
+        recordedChunksRef.current,
+        {
+          type: recorder.mimeType || "video/webm",
+        }
+      );
+
+      setRecordedVideoBlob(videoBlob);
+
+      if (videoBlob.size > 0) {
+        const videoUrl = URL.createObjectURL(videoBlob);
+
+        setRecordedVideoUrl((previousUrl) => {
+          if (previousUrl) {
+            URL.revokeObjectURL(previousUrl);
+          }
+
+          return videoUrl;
+        });
+
+        resolve(videoBlob);
+      } else {
+        resolve(null);
+      }
+
+      setIsRecording(false);
+      setRecordingTime(0);
+      mediaRecorderRef.current = null;
+
+      recorder.removeEventListener(
+        "stop",
+        handleStop
+      );
+    };
+
+    recorder.addEventListener(
+      "stop",
+      handleStop,
+      { once: true }
+    );
+
+    recorder.stop();
+  });
+}
+function deleteRecording() {
+  if (recordedVideoUrl) {
+    URL.revokeObjectURL(recordedVideoUrl);
+  }
+
+  setRecordedVideoUrl(null);
+  setRecordedVideoBlob(null);
+  recordedChunksRef.current = [];
+  setRecordingTime(0);
+}
 async function startCamera() {
   try {
     if (
       !navigator.mediaDevices ||
       !navigator.mediaDevices.getUserMedia
     ) {
-      throw new Error(
-        "Camera is not supported by this browser."
-      );
+      throw new Error("Camera is not supported.");
     }
 
     const stream =
@@ -533,13 +972,14 @@ async function startCamera() {
 
     setCameraOpen(true);
 
-  } catch (cameraError) {
-    console.error(
-      "Camera access error:",
-      cameraError
-    );
+    // Start recording only with explicit consent.
+    if (recordingConsent) {
+      startRecording(stream);
+    }
 
-    // Camera failure should NOT stop SOS.
+  } catch (cameraError) {
+    console.error("Camera access error:", cameraError);
+
     setCameraOpen(false);
 
     setError(
@@ -548,7 +988,9 @@ async function startCamera() {
   }
 }
 
-function stopCamera() {
+async function stopCamera() {
+  await stopRecording();
+
   if (cameraStreamRef.current) {
     cameraStreamRef.current
       .getTracks()
@@ -703,7 +1145,21 @@ function stopCamera() {
             workflow.
           </span>
         </label>
+        {/* Recording Consent */}
+            <label className="consent-row">
+              <input
+                type="checkbox"
+                checked={recordingConsent}
+                onChange={(event) =>
+                  setRecordingConsent(event.target.checked)
+                }
+              />
 
+              <span>
+                I explicitly consent to video recording during SOS.
+                Recording will remain local until I choose to share it.
+              </span>
+            </label>
         <button
           className="save-contact-button"
           type="submit"
@@ -714,7 +1170,23 @@ function stopCamera() {
             : "Add Trusted Contact"}
         </button>
       </form>
+    {/* Automatic Video Sharing Consent */}
 
+    <label className="consent-row">
+      <input
+        type="checkbox"
+        checked={sharingConsent}
+        onChange={(event) =>
+          setSharingConsent(event.target.checked)
+        }
+      />
+
+      <span>
+        I explicitly consent to automatically sharing
+        my SOS video with my selected trusted contacts
+        when I stop SOS.
+      </span>
+    </label>
       {/* TRUSTED CONTACT LIST */}
 
       {contacts.length > 0 && (
@@ -937,12 +1409,68 @@ function stopCamera() {
     </div>
 
     <div className="sos-camera-footer">
-      <span>
-        🔴 Live camera preview
-      </span>
-    </div>
+  {isRecording ? (
+    <span>
+      🔴 RECORDING{" "}
+      {Math.floor(recordingTime / 60)
+        .toString()
+        .padStart(2, "0")}
+      :
+      {(recordingTime % 60)
+        .toString()
+        .padStart(2, "0")}
+    </span>
+  ) : (
+    <span>📷 Live camera preview</span>
+  )}
+</div>
+    {isRecording && (
+      <button
+        type="button"
+        className="stop-recording-button"
+        onClick={stopRecording}
+      >
+        ⏹ Stop Recording
+      </button>
+    )}
   </div>
 )}
+
+{/* RECORDED VIDEO PREVIEW */}
+
+{recordedVideoUrl && (
+  <div className="recorded-video-card">
+    <h3>📹 SOS Video Recording</h3>
+
+    <p>
+      Your recording is ready. You can preview
+      or download it to your device.
+    </p>
+
+    <video
+      src={recordedVideoUrl}
+      controls
+      playsInline
+      className="recorded-video-preview"
+    />
+
+    <a
+      href={recordedVideoUrl}
+      download="sheguard-sos-recording.webm"
+      className="download-recording-button"
+    >
+      ⬇ Download Recording
+    </a>
+        <button
+      type="button"
+      className="delete-recording-button"
+      onClick={deleteRecording}
+    >
+      🗑 Delete Recording
+    </button>   
+  </div>
+)}
+
       {/* ACTIVE SOS */}
 
       {sosActive && (
@@ -1018,19 +1546,64 @@ function stopCamera() {
             )}
 
             <div className="sos-trip-context">
-              <strong>
-                Emergency message
-              </strong>
+  <strong>
+    Emergency message
+  </strong>
 
-              <p>
-  Your trusted contacts have been
-  notified automatically by SMS with
-  your current location and live
-  tracking link.
-</p>
-            </div>
+  <p>
+    Your trusted contacts have been
+    notified automatically by SMS with
+    your current location and live
+    tracking link.
+  </p>
+</div>
 
-            <div className="sos-confirm-actions">
+{/* SOS SECURITY STATUS */}
+
+{(sosSmsStatus || sosVideoStatus) && (
+  <div className="sos-status-card">
+    <div className="sos-status-header">
+      <span className="sos-status-icon">
+        🛡️
+      </span>
+
+      <div>
+        <strong>SOS Security Status</strong>
+        <p>
+          Emergency actions and video protection
+        </p>
+      </div>
+    </div>
+
+    <div className="sos-status-list">
+      {sosSmsStatus && (
+        <div className="sos-status-item">
+          <span className="sos-status-check">
+            ✓
+          </span>
+
+          <span>
+            {sosSmsStatus.replace("✓ ", "")}
+          </span>
+        </div>
+      )}
+
+      {sosVideoStatus && (
+        <div className="sos-status-item">
+          <span className="sos-status-check">
+            ✓
+          </span>
+
+          <span>
+            {sosVideoStatus.replace("✓ ", "")}
+          </span>
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
+<div className="sos-confirm-actions">
   <div className="sms-sent-status">
     📱 SMS alerts sent to your trusted contacts.
   </div>

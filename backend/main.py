@@ -4,9 +4,16 @@ import os
 import math
 from datetime import datetime, timezone
 from typing import Any
-
+from fastapi import UploadFile, File, Form
+from uuid import uuid4
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    UploadFile,
+    File,
+    Form,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import re
@@ -33,6 +40,27 @@ SAFETY_DISTRICT_SCORES = calculate_normalized_indicators(
 from dotenv import load_dotenv
 
 load_dotenv()
+print("ENV FILE FOUND:", os.path.exists(".env"))
+print(
+    "TEXTBEE KEY LOADED:",
+    bool(os.getenv("TEXTBEE_API_KEY"))
+)
+from supabase import create_client
+
+def get_supabase_client():
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase credentials are not configured."
+        )
+
+    return create_client(
+        supabase_url,
+        supabase_key
+    )
 # Reference sources for SHEGUARD AI.
 # These are general emergency resources, not live route-safety evidence.
 
@@ -148,8 +176,6 @@ OFFICIAL_REFERENCE_SOURCES = [
         "route_specific": False,
     },
 ]
-
-
 app = FastAPI(title="SHEGUARD AI - Route API")
 
 app.add_middleware(
@@ -767,8 +793,18 @@ class SOSRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     tracking_url: str = Field(min_length=1, max_length=500)
+class SOSVideoShareRequest(BaseModel):
+    contacts: list[SOSContact] = Field(
+        min_length=1,
+        max_length=10
+    )
 
+    signed_url: str = Field(
+        min_length=1,
+        max_length=3000
+    )
 
+    consent_given: bool = False
 def normalize_indian_phone(phone: str) -> str:
     cleaned = re.sub(r"[^\d+]", "", phone)
 
@@ -845,7 +881,7 @@ async def send_textbee_sms(
 @app.post("/api/test-textbee")
 async def test_textbee():
     result = await send_textbee_sms(
-        recipients=["+917571037033"],
+        recipients=["+919415833686"],
         message=(
             "SHEGUARD AI test alert 🚨\n"
             "TextBee integration is working successfully."
@@ -942,6 +978,64 @@ async def send_sos(request: SOSRequest):
         "failed_count": len(failed),
         "results": results,
     } 
+@app.post("/api/share-sos-video")
+async def share_sos_video(request: SOSVideoShareRequest):
+
+    if not request.consent_given:
+        raise HTTPException(
+            status_code=403,
+            detail="Video sharing requires explicit user consent."
+        )
+    results = []
+
+    for contact in request.contacts:
+        phone = normalize_indian_phone(contact.phone)
+
+        message = (
+            "🎥 SheGuard AI – Emergency Video\n\n"
+            f"Hi, {contact.name}.\n"
+            "The person who triggered the SOS has "
+            "explicitly consented to share this emergency video.\n\n"
+            f"📹 Watch video: {request.signed_url}\n\n"
+            "This temporary link expires after 1 hour. "
+            "Please keep it private."
+        )
+
+        try:
+            response = await send_textbee_sms(
+                recipients=[phone],
+                message=message,
+            )
+
+            results.append({
+                "name": contact.name,
+                "phone": phone,
+                "success": True,
+            })
+
+        except HTTPException as error:
+            print(
+                f"Video SMS failed for {contact.name}: "
+                f"{error.detail}"
+            )
+
+            results.append({
+                "name": contact.name,
+                "phone": phone,
+                "success": False,
+                "error": error.detail,
+            })
+
+    sent = sum(1 for item in results if item["success"])
+    failed = len(results) - sent
+
+    return {
+        "success": sent > 0,
+        "message": f"Video link sent to {sent} of {len(results)} contacts.",
+        "sent_count": sent,
+        "failed_count": failed,
+        "results": results,
+    }
 
 def has_pair(lat: float | None, lon: float | None) -> bool:
     return lat is not None and lon is not None
@@ -1988,7 +2082,7 @@ async def start_live_tracking():
         "success": True,
         "tracking_id": tracking_id,
         "tracking_url": (
-            "https://sheguard-ai-1.onrender.com"
+            "http://localhost:5175"
             f"/?tracking={tracking_id}"
         ),
     }
@@ -2120,3 +2214,108 @@ async def test_safety_data():
         ),
         "districts": SAFETY_DISTRICT_SCORES,
     }
+@app.get("/api/test-supabase")
+async def test_supabase():
+    try:
+        supabase = get_supabase_client()
+
+        buckets = supabase.storage.list_buckets()
+
+        bucket_names = [
+            bucket.name if hasattr(bucket, "name")
+            else bucket.get("name")
+            for bucket in buckets
+        ]
+
+        return {
+            "success": True,
+            "connected": True,
+            "bucket_names": bucket_names,
+            "bucket_exists": "sos-videos" in bucket_names,
+        }
+    except Exception as error:
+        print("Supabase Storage error type:", type(error).__name__)
+        print("Supabase Storage error details:", repr(error))
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Storage test failed: {type(error).__name__}"
+        )
+@app.post("/api/upload-sos-video")
+async def upload_sos_video(
+    video: UploadFile = File(...),
+):
+    # Accept WebM video only
+    if not video.content_type or not video.content_type.startswith(
+    "video/webm"
+    ):
+        raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Only WebM videos are allowed. "
+            f"Received: {video.content_type}"
+        )
+    )
+    try:
+        # Read at most 50 MB + 1 byte
+        video_bytes = await video.read(50 * 1024 * 1024 + 1)
+
+        if not video_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded video is empty."
+            )
+
+        if len(video_bytes) > 50 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail="Video size must not exceed 50 MB."
+            )
+
+        supabase = get_supabase_client()
+
+        # Generate a unique filename
+        file_path = f"sos/{uuid4()}.webm"
+
+        # Upload to private Supabase bucket
+        supabase.storage.from_("sos-videos").upload(
+            path=file_path,
+            file=video_bytes,
+            file_options={
+                "content-type": "video/webm",
+                "upsert": "false",
+            },
+        )
+        # Generate a temporary signed URL (1 hour)
+        signed_url_response = (
+            supabase.storage
+            .from_("sos-videos")
+            .create_signed_url(
+                file_path,
+                60 * 60
+            )
+        )
+
+        signed_url = signed_url_response["signedURL"]
+
+        return {
+            "success": True,
+            "message": "SOS video uploaded successfully.",
+            "bucket": "sos-videos",
+            "file_path": file_path,
+            "signed_url": signed_url,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("SOS video upload error:", repr(error))
+
+        raise HTTPException(
+            status_code=502,
+            detail="Could not upload SOS video."
+        )
+
+    finally:
+        await video.close()

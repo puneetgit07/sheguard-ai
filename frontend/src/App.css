@@ -1399,3 +1399,88 @@ footer {
     font-size: 14px;
   }
 }
+/* SOS RECORDED VIDEO */
+
+.recorded-video-card {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid #ead9e2;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #ffffff, #fff7fb);
+  box-shadow: 0 10px 28px rgba(142, 58, 96, 0.07);
+}
+
+.recorded-video-card h3 {
+  margin: 0 0 8px;
+  color: #432334;
+  font-size: 20px;
+}
+
+.recorded-video-card p {
+  margin: 0 0 16px;
+  color: #806b77;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.recorded-video-preview {
+  display: block;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: #1f1f1f;
+  border: 1px solid #ead9e2;
+  box-shadow: 0 8px 22px rgba(67, 35, 52, 0.12);
+}
+
+.download-recording-button,
+.delete-recording-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.download-recording-button {
+  margin-right: 10px;
+  background: #fff0f5;
+  border: 1px solid #efc7d8;
+  color: #a52d64;
+}
+
+.download-recording-button:hover {
+  background: #ffe5ef;
+}
+
+.delete-recording-button {
+  border: 1px solid #f0c8d5;
+  background: #fff5f6;
+  color: #b4234f;
+}
+
+.delete-recording-button:hover {
+  background: #ffe8ed;
+}
+
+@media (max-width: 600px) {
+  .recorded-video-card {
+    padding: 17px;
+  }
+
+  .download-recording-button,
+  .delete-recording-button {
+    width: 100%;
+    margin: 0 0 9px;
+  }
+
+  .delete-recording-button {
+    margin-bottom: 0;
+  }
+}
